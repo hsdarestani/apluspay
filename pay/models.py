@@ -181,9 +181,9 @@ class LedgerEntry(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=["business", "created_at"]),
-            models.Index(fields=["wallet", "created_at"]),
-            models.Index(fields=["order_reference"]),
+            models.Index(fields=["business", "created_at"], name="pay_ledger_biz_date_idx"),
+            models.Index(fields=["wallet", "created_at"], name="pay_ledger_wallet_date_idx"),
+            models.Index(fields=["order_reference"], name="pay_ledger_order_ref_idx"),
         ]
 
     def __str__(self):
@@ -202,7 +202,7 @@ class AuditEvent(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["business", "created_at"])]
+        indexes = [models.Index(fields=["business", "created_at"], name="pay_audit_biz_date_idx")]
 
     def __str__(self):
         return f"{self.action} · {self.object_type}:{self.object_id}"
