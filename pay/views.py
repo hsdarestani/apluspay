@@ -6,10 +6,9 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.templatetags.static import static
 
 from .forms import BusinessProvisionForm, CustomerCreateForm, MoneyActionForm, StaffCreateForm, WalletMoneyForm
-from .models import Business, LedgerEntry, Membership, Plan, Wallet
+from .models import Business, LedgerEntry, Plan, Wallet
 from .services import (
     MANAGER_ROLES,
     STAFF_ROLES,
@@ -70,7 +69,7 @@ def platform_business_create(request):
         Plan.objects.create(code="starter", name="Starter", monthly_price="49.00", max_locations=1, max_staff=5)
     form = BusinessProvisionForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        business, owner = provision_business(**form.cleaned_data)
+        business, owner = provision_business(actor=request.user, **form.cleaned_data)
         messages.success(request, f"{business.name} und Owner {owner.username} wurden angelegt.")
         return redirect("platform-dashboard")
     return render(request, "pay/platform_business_form.html", {"form": form})
@@ -94,7 +93,7 @@ def owner_dashboard(request, business_slug):
         elif action == "create_staff":
             staff_form = StaffCreateForm(request.POST, prefix="staff")
             if staff_form.is_valid():
-                user = create_staff_member(business=business, **staff_form.cleaned_data)
+                user = create_staff_member(business=business, actor=request.user, **staff_form.cleaned_data)
                 messages.success(request, f"Teammitglied {user.username} wurde erstellt.")
                 return redirect("owner-dashboard", business_slug=business.slug)
 
