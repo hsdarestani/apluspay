@@ -1,0 +1,8 @@
+{% extends "pay/base.html" %}
+{% block title %}Meine Wallets · A+Pay{% endblock %}
+{% block content %}
+<section class="dashboard-shell">
+  <div class="page-heading"><div><span class="eyebrow">CUSTOMER WALLET</span><h1>Hallo {{ user.first_name|default:user.username }}</h1><p class="muted">Deine A+Pay Wallets über alle teilnehmenden Businesses.</p></div></div>
+  <div class="wallet-grid">{% for wallet in wallets %}<a class="digital-wallet" href="{% url 'customer-wallet-detail' wallet.id %}" style="--tenant: {{ wallet.business.primary_color }}"><div class="wallet-top"><span class="brand"><span class="brand-mark">A+</span>PAY</span><span>{{ wallet.business.name }}</span></div><small>AVAILABLE BALANCE</small><strong>€ {{ wallet.balance|floatformat:2 }}</strong><div class="wallet-meta"><span>{{ wallet.member_number }}</span><span>{{ wallet.loyalty_points }} POINTS</span></div></a>{% empty %}<div class="empty-state"><h2>Noch kein Wallet</h2><p>Ein teilnehmendes Business muss dein Wallet zuerst anlegen.</p></div>{% endfor %}</div>
+</section>
+{% endblock %}

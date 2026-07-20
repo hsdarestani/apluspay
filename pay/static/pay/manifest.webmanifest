@@ -1,0 +1,9 @@
+{
+  "name": "A+Pay Platform",
+  "short_name": "A+Pay",
+  "start_url": "/dashboard/",
+  "display": "standalone",
+  "background_color": "#0A0D12",
+  "theme_color": "#F5B800",
+  "icons": [{"src": "/static/pay/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
+}

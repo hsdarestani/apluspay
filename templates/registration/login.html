@@ -1,0 +1,13 @@
+{% extends "pay/base.html" %}
+{% block title %}Login · A+Pay{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <div class="auth-card panel">
+    <span class="eyebrow">Sicherer Zugang</span>
+    <h1>Willkommen bei A+Pay</h1>
+    <p class="muted">Melden Sie sich als Plattform-Admin, Betreiber, Mitarbeiter oder Kunde an.</p>
+    {% if form.errors %}<div class="alert">Benutzername oder Passwort ist nicht korrekt.</div>{% endif %}
+    <form method="post" class="stack-form">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary" type="submit">Einloggen</button></form>
+  </div>
+</section>
+{% endblock %}
