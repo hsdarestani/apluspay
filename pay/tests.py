@@ -5,7 +5,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
 
 from .models import Business, Membership, Plan, Wallet
-from .services import post_wallet_entry, provision_business, require_role
+from .services import create_staff_member, post_wallet_entry, provision_business, require_role
 
 User = get_user_model()
 
@@ -28,6 +28,19 @@ class MultiTenantSecurityTests(TestCase):
         self.client.login(username="owner-a", password="strong-pass-123")
         response = self.client.get(f"/b/{self.business_a.slug}/wallets/{wallet.pk}/")
         self.assertEqual(response.status_code, 404)
+
+    def test_manager_cannot_create_another_manager(self):
+        manager = User.objects.create_user("manager-a", password="strong-pass-123")
+        Membership.objects.create(user=manager, business=self.business_a, role=Membership.Role.MANAGER)
+        with self.assertRaises(PermissionDenied):
+            create_staff_member(
+                business=self.business_a,
+                username="manager-b",
+                email="manager-b@example.com",
+                password="strong-pass-123",
+                role=Membership.Role.MANAGER,
+                actor=manager,
+            )
 
 
 class WalletLedgerTests(TestCase):
