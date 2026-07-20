@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from .models import Business, LedgerEntry, Membership, Wallet
@@ -46,7 +48,7 @@ class LedgerEntrySerializer(serializers.ModelSerializer):
 class MoneyActionSerializer(serializers.Serializer):
     wallet_token = serializers.UUIDField(required=False)
     member_number = serializers.CharField(max_length=8, required=False)
-    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0.01)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
     description = serializers.CharField(max_length=255, required=False, allow_blank=True)
     order_reference = serializers.CharField(max_length=100, required=False, allow_blank=True)
     idempotency_key = serializers.CharField(max_length=100, required=False, allow_blank=True)
