@@ -36,7 +36,13 @@ class StaffCreateForm(StyledFormMixin, forms.Form):
     username = forms.CharField(label="Benutzername", max_length=150)
     email = forms.EmailField(label="E-Mail", required=False)
     password = forms.CharField(label="Initialpasswort", widget=forms.PasswordInput, min_length=10)
-    role = forms.ChoiceField(label="Rolle", choices=Membership.Role.choices)
+    role = forms.ChoiceField(
+        label="Rolle",
+        choices=[
+            (Membership.Role.MANAGER, Membership.Role.MANAGER.label),
+            (Membership.Role.STAFF, Membership.Role.STAFF.label),
+        ],
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
