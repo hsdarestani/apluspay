@@ -55,7 +55,7 @@ def normalize_amount(value):
 
 
 @transaction.atomic
-def provision_business(*, business_name, slug, owner_username, owner_email, owner_password, plan, location_name="Hauptstandort"):
+def provision_business(*, business_name, slug, owner_username, owner_email, owner_password, plan, location_name="Hauptstandort", actor=None):
     owner = User.objects.create_user(username=owner_username, email=owner_email, password=owner_password)
     business = Business.objects.create(name=business_name, slug=slug, contact_email=owner_email)
     Membership.objects.create(user=owner, business=business, role=Membership.Role.OWNER)
@@ -67,7 +67,7 @@ def provision_business(*, business_name, slug, owner_username, owner_email, owne
         trial_ends_at=timezone.now() + timedelta(days=14),
     )
     AuditEvent.objects.create(
-        actor=None,
+        actor=actor,
         business=business,
         action="platform.business_created",
         object_type="business",
@@ -78,12 +78,19 @@ def provision_business(*, business_name, slug, owner_username, owner_email, owne
 
 
 @transaction.atomic
-def create_staff_member(*, business, username, email, password, role):
-    if role not in Membership.Role.values:
-        raise ValidationError("Ungültige Rolle.")
+def create_staff_member(*, business, username, email, password, role, actor):
+    if role not in {Membership.Role.MANAGER, Membership.Role.STAFF}:
+        raise ValidationError("Diese Rolle kann hier nicht vergeben werden.")
+    if not is_platform_admin(actor):
+        actor_membership = get_active_membership(actor, business)
+        if not actor_membership or actor_membership.role not in MANAGER_ROLES:
+            raise PermissionDenied("Keine Berechtigung für diese Aktion.")
+        if actor_membership.role == Membership.Role.MANAGER and role != Membership.Role.STAFF:
+            raise PermissionDenied("Manager dürfen nur Staff-Zugänge anlegen.")
     user = User.objects.create_user(username=username, email=email, password=password)
     Membership.objects.create(user=user, business=business, role=role)
     AuditEvent.objects.create(
+        actor=actor,
         business=business,
         action="membership.created",
         object_type="user",
@@ -103,6 +110,14 @@ def create_customer_wallet(*, business, username, email, phone, password, displa
         display_name=display_name,
         email=email,
         phone=phone,
+    )
+    AuditEvent.objects.create(
+        actor=actor,
+        business=business,
+        action="wallet.created",
+        object_type="wallet",
+        object_id=str(wallet.pk),
+        details={"username": username, "member_number": wallet.member_number},
     )
     if initial_balance and Decimal(str(initial_balance)) > 0:
         post_wallet_entry(
