@@ -1,0 +1,96 @@
+name: Diagnose A+Pay Origin
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    if: github.event.issue.title == 'diagnose-apluspay-origin' && github.actor == github.repository_owner
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.HOST }}
+      SSHPASS: ${{ secrets.PASS }}
+      EXPECTED_HOST: 91.107.245.210
+      DOMAIN: pay.smarbiz.sbs
+    steps:
+      - name: Install diagnostic tools
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass netcat-openbsd >/dev/null
+
+      - name: Collect origin diagnostics
+        id: diagnose
+        shell: bash
+        run: |
+          set +e
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p 22 "$SSH_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          chmod 600 ~/.ssh/known_hosts
+
+          if [ "$SSH_HOST" = "$EXPECTED_HOST" ]; then
+            MATCHES=yes
+          else
+            MATCHES=no
+          fi
+
+          expected_ssh=closed
+          nc -zvw5 "$EXPECTED_HOST" 22 >/dev/null 2>&1 && expected_ssh=open
+          secret_ssh=closed
+          nc -zvw5 "$SSH_HOST" 22 >/dev/null 2>&1 && secret_ssh=open
+
+          origin_http=$(curl -sS -o /tmp/origin-http -w 'code=%{http_code} ssl=%{ssl_verify_result}' \
+            --connect-timeout 10 --max-time 20 \
+            --resolve "$DOMAIN:80:$SSH_HOST" "http://$DOMAIN/health/" 2>&1)
+          origin_https=$(curl -sS -o /tmp/origin-https -w 'code=%{http_code} ssl=%{ssl_verify_result}' \
+            --connect-timeout 10 --max-time 20 \
+            --resolve "$DOMAIN:443:$SSH_HOST" "https://$DOMAIN/health/" 2>&1)
+
+          remote_status=$(sshpass -e ssh -o ConnectTimeout=10 -p 22 root@"$SSH_HOST" 'bash -se' <<'REMOTE' 2>&1
+          set +e
+          echo 'listening_ports:'
+          ss -ltn | awk 'NR==1 || /:22 |:80 |:443 |:8020 /'
+          echo 'containers:'
+          cd /root/apluspay 2>/dev/null && docker compose ps || true
+          echo 'local_health:'
+          curl -sS -o /dev/null -w 'code=%{http_code}\n' http://127.0.0.1:8020/health/ || true
+          echo 'nginx_check:'
+          nginx -t 2>&1 || true
+          echo 'certificate:'
+          certbot certificates 2>/dev/null | grep -E 'Certificate Name:|Domains:|Expiry Date:' || true
+          REMOTE
+          )
+
+          {
+            echo "configured_host_matches_91.107.245.210=$MATCHES"
+            echo "expected_ip_ssh=$expected_ssh"
+            echo "configured_secret_host_ssh=$secret_ssh"
+            echo "direct_origin_http=$origin_http"
+            echo "direct_origin_https=$origin_https"
+            echo "$remote_status"
+          } > /tmp/origin-diagnostic.txt
+          cat /tmp/origin-diagnostic.txt
+          {
+            echo 'diagnostic<<APAYEOF'
+            head -c 7000 /tmp/origin-diagnostic.txt
+            echo
+            echo 'APAYEOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish origin diagnostic
+        uses: actions/github-script@v7
+        env:
+          DIAGNOSTIC: ${{ steps.diagnose.outputs.diagnostic }}
+        with:
+          script: |
+            const body = `## Origin diagnostic\n\n\`\`\`text\n${process.env.DIAGNOSTIC}\n\`\`\``;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
