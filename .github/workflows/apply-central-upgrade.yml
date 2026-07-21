@@ -69,7 +69,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          {
+          (
+            set -euo pipefail
             echo '### compileall'
             python -m compileall -q config pay
             echo '### migration drift'
@@ -80,7 +81,7 @@ jobs:
             python manage.py check
             echo '### tests'
             python manage.py test --verbosity 2
-          } > /tmp/validation.log 2>&1
+          ) > /tmp/validation.log 2>&1
           result=$?
           cat /tmp/validation.log
           {
