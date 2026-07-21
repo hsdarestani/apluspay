@@ -1,0 +1,37 @@
+{% extends "pay/base.html" %}
+{% block title %}A+Pay · Smart Wallet Platform{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="hero-copy">
+    <span class="eyebrow">A+ SOLUTION DIGITAL PRODUCTS</span>
+    <h1>Das eigene Bezahlsystem für Cafés, Lounges und Hospitality.</h1>
+    <p>Guthaben aufladen, bargeldlos bezahlen, Kunden binden und jeden Standort zentral steuern – als sichere Multi-Tenant-Plattform.</p>
+    <div class="button-row">
+      <a class="btn btn-primary" href="{% url 'login' %}">Plattform öffnen</a>
+      <a class="btn btn-ghost" href="{{ mother_brand_url }}" target="_blank" rel="noopener">A+ Solution entdecken</a>
+    </div>
+    <div class="trust-row"><span>✓ Mandantenfähig</span><span>✓ Audit Ledger</span><span>✓ PWA & API-ready</span></div>
+  </div>
+  <div class="hero-visual">
+    <div class="pay-card">
+      <div class="pay-card-head"><span class="brand-mark">A+</span><span>PAY</span></div>
+      <div class="card-label">AVAILABLE BALANCE</div>
+      <div class="card-balance">€ 200,00</div>
+      <div class="card-bottom"><span>MEMBER 8172 4031</span><span class="chip"></span></div>
+    </div>
+    <div class="floating-stat"><small>Heute bezahlt</small><strong>€ 1.842</strong><span>+18,4%</span></div>
+  </div>
+</section>
+
+<section class="feature-grid section-pad">
+  <article><span class="feature-number">01</span><h3>Platform Admin</h3><p>Owner, Tarife, Standorte und den gesamten Betrieb aller Kunden zentral verwalten.</p></article>
+  <article><span class="feature-number">02</span><h3>Owner Cockpit</h3><p>Wallets, Mitarbeiter, Guthaben und Transaktionen pro Unternehmen strikt getrennt steuern.</p></article>
+  <article><span class="feature-number">03</span><h3>Staff Checkout</h3><p>Mit Mitgliedsnummer oder QR bezahlen – schnell, nachvollziehbar und ohne Bargeldkontakt.</p></article>
+  <article><span class="feature-number">04</span><h3>Customer Wallet</h3><p>Saldo, Loyalty Points, digitale Karte und Belege jederzeit auf dem Smartphone.</p></article>
+</section>
+
+<section class="dark-band section-pad">
+  <div><span class="eyebrow">PLATFORM BY DESIGN</span><h2>Ein Produkt. Beliebig viele Businesses.</h2></div>
+  <p>Jeder Mandant besitzt eigene Kunden, Mitarbeiter, Standorte und Ledger-Daten. Der Platform Admin bleibt die einzige globale Kontrollinstanz.</p>
+</section>
+{% endblock %}

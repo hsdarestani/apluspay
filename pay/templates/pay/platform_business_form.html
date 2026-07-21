@@ -1,0 +1,12 @@
+{% extends "pay/base.html" %}
+{% block title %}Business anlegen · A+Pay{% endblock %}
+{% block content %}
+<section class="dashboard-shell narrow">
+  <a class="back-link" href="{% url 'platform-dashboard' %}">← Platform</a>
+  <div class="page-heading"><div><span class="eyebrow">TENANT PROVISIONING</span><h1>Neues Business</h1><p class="muted">Erstellt Mandant, Owner, ersten Standort und Trial-Abo in einem sicheren Schritt.</p></div></div>
+  <div class="panel"><form method="post" class="form-grid">{% csrf_token %}{{ form.non_field_errors }}
+    {% for field in form %}<label><span>{{ field.label }}</span>{{ field }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}{{ field.errors }}</label>{% endfor %}
+    <div class="full"><button class="btn btn-primary" type="submit">Business provisionieren</button></div>
+  </form></div>
+</section>
+{% endblock %}

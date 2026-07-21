@@ -1,0 +1,9 @@
+{% extends "pay/base.html" %}
+{% block title %}Checkout · {{ business.name }} · A+Pay{% endblock %}
+{% block content %}
+<section class="checkout-shell" style="--tenant: {{ business.primary_color }}">
+  <div class="checkout-side"><span class="eyebrow">STAFF CHECKOUT</span><h1>{{ business.name }}</h1><p>Mitgliedsnummer eingeben oder später den QR-Scanner anbinden. Jede Buchung erzeugt einen unveränderbaren Ledger-Eintrag.</p><div class="security-note">● Tenant locked: <strong>{{ business.slug }}</strong></div></div>
+  <div class="checkout-card"><h2>Zahlung buchen</h2>{% if wallet %}<div class="wallet-preview"><span>{{ wallet.display_name }}</span><strong>€ {{ wallet.balance|floatformat:2 }}</strong><small>{{ wallet.member_number }} · {{ wallet.get_status_display }}</small></div>{% endif %}<form method="post" class="stack-form">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary btn-block" type="submit">Jetzt abbuchen</button></form></div>
+  <div class="panel recent-checkout"><div class="panel-head"><h2>Letzte Zahlungen</h2></div><div class="activity-list">{% for item in recent_entries %}<a href="{% url 'receipt' item.bill_number %}"><div><strong>{{ item.wallet.display_name }}</strong><small>{{ item.created_at|date:"H:i" }} · {{ item.bill_number }}</small></div><b class="{% if item.amount < 0 %}negative{% else %}positive{% endif %}">{{ item.amount }} €</b></a>{% endfor %}</div></div>
+</section>
+{% endblock %}

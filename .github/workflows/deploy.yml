@@ -1,0 +1,185 @@
+name: Deploy A+Pay Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apluspay-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Hetzner
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.HOST }}
+      SSHPASS: ${{ secrets.PASS }}
+      SSH_USER: root
+      SSH_PORT: "22"
+      APP_DIR: /root/apluspay
+      DOMAIN: pay.smarbiz.sbs
+
+    steps:
+      - name: Validate deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" || (echo "HOST secret is missing" && exit 1)
+          test -n "$SSHPASS" || (echo "PASS secret is missing" && exit 1)
+
+      - name: Install SSH client
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Trust server host key
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Provision and deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' DOMAIN='$DOMAIN' REPOSITORY='https://github.com/${GITHUB_REPOSITORY}.git' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+
+          apt-get update
+          apt-get install -y git curl ca-certificates openssl nginx certbot python3-certbot-nginx
+
+          if ! command -v docker >/dev/null 2>&1; then
+            curl -fsSL https://get.docker.com | sh
+          fi
+          systemctl enable --now docker
+          systemctl enable --now nginx
+          docker compose version
+
+          mkdir -p "$APP_DIR"
+          if [ ! -d "$APP_DIR/.git" ]; then
+            rm -rf "$APP_DIR"
+            git clone "$REPOSITORY" "$APP_DIR"
+          fi
+
+          cd "$APP_DIR"
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          if [ ! -f .env ]; then
+            DB_PASSWORD="$(openssl rand -hex 24)"
+            DJANGO_SECRET_KEY="$(openssl rand -hex 48)"
+            cat > .env <<ENV
+          DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
+          DJANGO_DEBUG=0
+          DJANGO_ALLOWED_HOSTS=$DOMAIN,localhost,127.0.0.1
+          DJANGO_CSRF_TRUSTED_ORIGINS=https://$DOMAIN
+          DJANGO_TIME_ZONE=Europe/Berlin
+          DJANGO_SECURE_COOKIES=1
+          DJANGO_HSTS_SECONDS=31536000
+          DATABASE_URL=postgresql://apluspay:$DB_PASSWORD@db:5432/apluspay
+          POSTGRES_DB=apluspay
+          POSTGRES_USER=apluspay
+          POSTGRES_PASSWORD=$DB_PASSWORD
+          GUNICORN_WORKERS=3
+          ENV
+            chmod 600 .env
+          fi
+
+          docker compose up -d --build --remove-orphans
+
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --show-error http://127.0.0.1:8020/health/ >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 40 ]; then
+              echo "Application health check failed."
+              docker compose ps
+              docker compose logs --tail=250 web
+              exit 1
+            fi
+            sleep 3
+          done
+
+          CREDENTIALS_FILE="$APP_DIR/.platform-admin-credentials"
+          if [ ! -f "$CREDENTIALS_FILE" ]; then
+            ADMIN_PASSWORD="$(openssl rand -hex 16)"
+            cat > "$CREDENTIALS_FILE" <<CREDS
+          URL=https://$DOMAIN/accounts/login/
+          USERNAME=platform
+          PASSWORD=$ADMIN_PASSWORD
+          CREDS
+            chmod 600 "$CREDENTIALS_FILE"
+          else
+            ADMIN_PASSWORD="$(awk -F= '/^PASSWORD=/{print $2}' "$CREDENTIALS_FILE")"
+          fi
+
+          docker compose exec -T \
+            -e DJANGO_SUPERUSER_PASSWORD="$ADMIN_PASSWORD" \
+            web python manage.py createsuperuser \
+            --noinput --username platform --email admin@aplus-solution.de \
+            >/dev/null 2>&1 || true
+
+          cat > /etc/nginx/sites-available/apluspay.conf <<NGINX
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name $DOMAIN;
+
+              client_max_body_size 20M;
+
+              location / {
+                  proxy_pass http://127.0.0.1:8020;
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  proxy_read_timeout 90;
+              }
+          }
+          NGINX
+
+          ln -sfn /etc/nginx/sites-available/apluspay.conf /etc/nginx/sites-enabled/apluspay.conf
+          nginx -t
+          systemctl reload nginx
+
+          resolved=0
+          for attempt in $(seq 1 20); do
+            if getent ahostsv4 "$DOMAIN" >/dev/null 2>&1; then
+              resolved=1
+              break
+            fi
+            sleep 15
+          done
+          if [ "$resolved" -ne 1 ]; then
+            echo "DNS for $DOMAIN is not resolving yet. Application is running on the server, but HTTPS cannot be issued."
+            exit 1
+          fi
+
+          certbot --nginx \
+            --non-interactive \
+            --agree-tos \
+            --register-unsafely-without-email \
+            --redirect \
+            -d "$DOMAIN"
+
+          systemctl reload nginx
+          curl --fail --silent --show-error --retry 10 --retry-delay 3 "https://$DOMAIN/health/"
+          docker compose ps
+          REMOTE
+
+      - name: Verify public endpoint
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --retry 10 --retry-delay 5 \
+            https://pay.smarbiz.sbs/health/
