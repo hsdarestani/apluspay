@@ -1,12 +1,13 @@
 {
-  "name": "A+Pay Central",
+  "name": "A+Pay Zentrale",
   "short_name": "A+Pay",
-  "description": "One account for every vendor wallet, payment and loyalty experience.",
+  "description": "Ein Konto für Guthaben, Zahlungen und Treuevorteile bei allen teilnehmenden Anbietern.",
   "start_url": "/dashboard/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#07090d",
   "theme_color": "#07090d",
   "orientation": "portrait-primary",
+  "lang": "de-DE",
   "icons": [{"src":"/static/pay/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
 }
