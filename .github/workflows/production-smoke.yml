@@ -28,9 +28,10 @@ jobs:
         id: smoke
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           base='https://pay.smarbiz.sbs'
-          check() {
+
+          public_check() {
             local path="$1"
             local expected="$2"
             local output
@@ -39,26 +40,42 @@ jobs:
               --retry 24 --retry-delay 5 --retry-all-errors \
               --connect-timeout 10 --max-time 40 \
               "$base$path" -o "$output"
-            if [ -n "$expected" ]; then
-              grep -Fq "$expected" "$output"
-            fi
-            printf '%-36s OK (%s bytes)\n' "$path" "$(wc -c < "$output")"
+            grep -Fq "$expected" "$output"
+            printf '%-36s HTTP 200 · content OK (%s bytes)\n' "$path" "$(wc -c < "$output")"
           }
 
-          {
-            check '/health/' '"service": "apluspay"'
-            check '/' 'A+Pay'
-            check '/accounts/register/' 'A+Pay'
-            check '/vendors/' 'A+Pay'
-            check '/sw.js' 'CACHE'
-            check '/static/pay/manifest.webmanifest' 'A+Pay'
-          } | tee /tmp/smoke.log
+          protected_check() {
+            local path="$1"
+            local headers body code
+            headers="$(mktemp)"
+            body="$(mktemp)"
+            code="$(curl --silent --show-error \
+              --retry 24 --retry-delay 5 --retry-all-errors \
+              --connect-timeout 10 --max-time 40 \
+              -D "$headers" -o "$body" -w '%{http_code}' "$base$path")"
+            test "$code" = '302'
+            grep -Eqi '^location: .*/accounts/login/' "$headers"
+            printf '%-36s HTTP 302 · login protection OK\n' "$path"
+          }
+
+          (
+            set -euo pipefail
+            public_check '/health/' '"service": "apluspay"'
+            public_check '/' 'A+Pay'
+            public_check '/accounts/register/' 'A+Pay'
+            protected_check '/vendors/'
+            public_check '/sw.js' 'CACHE'
+            public_check '/static/pay/manifest.webmanifest' 'A+Pay'
+          ) > /tmp/smoke.log 2>&1
+          result=$?
+          cat /tmp/smoke.log
 
           {
             echo 'result<<APAYEOF'
             cat /tmp/smoke.log
             echo 'APAYEOF'
           } >> "$GITHUB_OUTPUT"
+          exit "$result"
 
       - name: Report requested smoke result
         if: always() && github.event_name == 'issues'
@@ -69,9 +86,10 @@ jobs:
           script: |
             const success = '${{ job.status }}' === 'success';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const details = process.env.RESULT ? `\n\n\`\`\`text\n${process.env.RESULT}\n\`\`\`` : '';
             const body = success
-              ? `✅ Production central-flow smoke checks passed.\n\n\`\`\`text\n${process.env.RESULT}\n\`\`\`\n\n${runUrl}`
-              : `❌ Production central-flow smoke checks failed.\n\n${runUrl}`;
+              ? `✅ Production central-flow smoke checks passed.${details}\n\n${runUrl}`
+              : `❌ Production central-flow smoke checks failed.${details}\n\n${runUrl}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
