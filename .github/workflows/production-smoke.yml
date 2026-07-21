@@ -1,0 +1,80 @@
+name: Smoke A+Pay Production Flows
+
+on:
+  workflow_run:
+    workflows: ["Deploy A+Pay Production"]
+    types: [completed]
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: apluspay-production-smoke
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name == 'issues' && github.event.issue.title == 'smoke-apluspay-production' && github.actor == github.repository_owner)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify central public flows
+        id: smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://pay.smarbiz.sbs'
+          check() {
+            local path="$1"
+            local expected="$2"
+            local output
+            output="$(mktemp)"
+            curl --fail --silent --show-error \
+              --retry 24 --retry-delay 5 --retry-all-errors \
+              --connect-timeout 10 --max-time 40 \
+              "$base$path" -o "$output"
+            if [ -n "$expected" ]; then
+              grep -Fq "$expected" "$output"
+            fi
+            printf '%-36s OK (%s bytes)\n' "$path" "$(wc -c < "$output")"
+          }
+
+          {
+            check '/health/' '"service": "apluspay"'
+            check '/' 'A+Pay'
+            check '/accounts/register/' 'A+Pay'
+            check '/vendors/' 'A+Pay'
+            check '/sw.js' 'CACHE'
+            check '/static/pay/manifest.webmanifest' 'A+Pay'
+          } | tee /tmp/smoke.log
+
+          {
+            echo 'result<<APAYEOF'
+            cat /tmp/smoke.log
+            echo 'APAYEOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Report requested smoke result
+        if: always() && github.event_name == 'issues'
+        uses: actions/github-script@v7
+        env:
+          RESULT: ${{ steps.smoke.outputs.result }}
+        with:
+          script: |
+            const success = '${{ job.status }}' === 'success';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = success
+              ? `✅ Production central-flow smoke checks passed.\n\n\`\`\`text\n${process.env.RESULT}\n\`\`\`\n\n${runUrl}`
+              : `❌ Production central-flow smoke checks failed.\n\n${runUrl}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
