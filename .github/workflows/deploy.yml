@@ -39,13 +39,9 @@ jobs:
       - name: Install SSH client
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y sshpass
-
-      - name: Trust server host key
-        shell: bash
-        run: |
           set -euo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
           install -m 700 -d ~/.ssh
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
@@ -60,14 +56,13 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
 
           apt-get update
-          apt-get install -y git curl ca-certificates openssl nginx certbot python3-certbot-nginx
+          apt-get install -y git curl ca-certificates openssl nginx certbot
 
           if ! command -v docker >/dev/null 2>&1; then
             curl -fsSL https://get.docker.com | sh
           fi
           systemctl enable --now docker
           systemctl enable --now nginx
-          docker compose version
 
           mkdir -p "$APP_DIR"
           if [ ! -d "$APP_DIR/.git" ]; then
@@ -134,58 +129,122 @@ jobs:
             --noinput --username platform --email admin@aplus-solution.de \
             >/dev/null 2>&1 || true
 
-          cat > /etc/nginx/sites-available/apluspay.conf <<NGINX
+          mkdir -p /var/www/certbot/.well-known/acme-challenge
+          mkdir -p /etc/ssl/apluspay
+
+          if [ ! -s /etc/ssl/apluspay/fullchain.pem ] || [ ! -s /etc/ssl/apluspay/privkey.pem ]; then
+            openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+              -keyout /etc/ssl/apluspay/privkey.pem \
+              -out /etc/ssl/apluspay/fullchain.pem \
+              -subj "/CN=$DOMAIN" \
+              -addext "subjectAltName=DNS:$DOMAIN" >/dev/null 2>&1
+            chmod 600 /etc/ssl/apluspay/privkey.pem
+          fi
+
+          if [ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
+            CERT_FILE="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+            KEY_FILE="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+          else
+            CERT_FILE="/etc/ssl/apluspay/fullchain.pem"
+            KEY_FILE="/etc/ssl/apluspay/privkey.pem"
+          fi
+
+          rm -f /etc/nginx/sites-enabled/default
+          rm -f /etc/nginx/sites-enabled/apluspay.conf
+          rm -f /etc/nginx/conf.d/apluspay.conf
+
+          for item in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
+            [ -e "$item" ] || continue
+            if grep -Fq "$DOMAIN" "$item" 2>/dev/null; then
+              rm -f "$item"
+            fi
+          done
+
+          cat > /etc/nginx/conf.d/apluspay.conf <<NGINX
           server {
-              listen 80;
-              listen [::]:80;
-              server_name $DOMAIN;
+              listen 80 default_server;
+              listen [::]:80 default_server;
+              server_name $DOMAIN _;
 
               client_max_body_size 20M;
 
+              location ^~ /.well-known/acme-challenge/ {
+                  root /var/www/certbot;
+                  default_type text/plain;
+                  try_files \$uri =404;
+              }
+
               location / {
                   proxy_pass http://127.0.0.1:8020;
-                  proxy_set_header Host \$host;
+                  proxy_set_header Host $DOMAIN;
                   proxy_set_header X-Real-IP \$remote_addr;
                   proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
                   proxy_set_header X-Forwarded-Proto \$scheme;
                   proxy_read_timeout 90;
               }
           }
+
+          server {
+              listen 443 ssl http2 default_server;
+              listen [::]:443 ssl http2 default_server;
+              server_name $DOMAIN _;
+
+              ssl_certificate $CERT_FILE;
+              ssl_certificate_key $KEY_FILE;
+              ssl_protocols TLSv1.2 TLSv1.3;
+              ssl_session_cache shared:APaySSL:10m;
+
+              client_max_body_size 20M;
+
+              location / {
+                  proxy_pass http://127.0.0.1:8020;
+                  proxy_set_header Host $DOMAIN;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto https;
+                  proxy_read_timeout 90;
+              }
+          }
           NGINX
 
-          ln -sfn /etc/nginx/sites-available/apluspay.conf /etc/nginx/sites-enabled/apluspay.conf
+          if command -v ufw >/dev/null 2>&1; then
+            ufw allow 80/tcp >/dev/null 2>&1 || true
+            ufw allow 443/tcp >/dev/null 2>&1 || true
+          fi
+
           nginx -t
           systemctl reload nginx
 
-          resolved=0
-          for attempt in $(seq 1 20); do
-            if getent ahostsv4 "$DOMAIN" >/dev/null 2>&1; then
-              resolved=1
-              break
-            fi
-            sleep 15
-          done
-          if [ "$resolved" -ne 1 ]; then
-            echo "DNS for $DOMAIN is not resolving yet. Application is running on the server, but HTTPS cannot be issued."
-            exit 1
-          fi
-
-          certbot --nginx \
+          certbot certonly \
+            --webroot \
+            --webroot-path /var/www/certbot \
             --non-interactive \
             --agree-tos \
             --register-unsafely-without-email \
-            --redirect \
-            -d "$DOMAIN"
+            --keep-until-expiring \
+            -d "$DOMAIN" || true
 
+          if [ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
+            sed -i \
+              -e "s#/etc/ssl/apluspay/fullchain.pem#/etc/letsencrypt/live/$DOMAIN/fullchain.pem#g" \
+              -e "s#/etc/ssl/apluspay/privkey.pem#/etc/letsencrypt/live/$DOMAIN/privkey.pem#g" \
+              /etc/nginx/conf.d/apluspay.conf
+          fi
+
+          nginx -t
           systemctl reload nginx
-          curl --fail --silent --show-error --retry 10 --retry-delay 3 "https://$DOMAIN/health/"
+          curl --fail --silent --show-error -H "Host: $DOMAIN" http://127.0.0.1/health/ >/dev/null
+          curl --fail --silent --show-error --insecure \
+            --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/health/" >/dev/null
           docker compose ps
           REMOTE
 
       - name: Verify public endpoint
         shell: bash
         run: |
-          curl --fail --silent --show-error --retry 10 --retry-delay 5 \
+          curl --fail --silent --show-error \
+            --retry 15 --retry-delay 5 --retry-all-errors \
+            --connect-timeout 10 --max-time 120 \
             https://pay.smarbiz.sbs/health/
 
       - name: Report deployment result
