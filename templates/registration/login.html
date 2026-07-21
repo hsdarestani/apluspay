@@ -1,3 +1,30 @@
 {% extends 'pay/base.html' %}
-{% block title %}Login · A+Pay{% endblock %}
-{% block content %}<section class="auth-shell"><div class="auth-side"><span class="eyebrow">WELCOME BACK</span><h1>Deine Wallets warten auf dich.</h1><p>Ein Login für A+Pay, deine Vendor-Karten und verbundene Brand Apps.</p><div class="login-visual"><div class="login-ring"></div><span class="brand-mark giant">A+</span></div></div><div class="auth-card glass-card reveal"><div class="brand auth-brand"><span class="brand-mark">A+</span><span>PAY</span></div><h2>Einloggen</h2><p class="muted">Weiter zu deinem persönlichen Hub.</p><form method="post" class="stack-form">{% csrf_token %}{{ form.as_p }}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}<button class="btn btn-primary btn-block btn-xl">Login <span>→</span></button></form><p class="auth-switch">Neu bei A+Pay? <a href="{% url 'register' %}">Konto erstellen</a></p></div></section>{% endblock %}
+{% block title %}Anmelden · A+Pay{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <div class="auth-side">
+    <span class="eyebrow">SCHÖN, DASS DU WIEDER DA BIST</span>
+    <h1>Deine Guthaben warten auf dich.</h1>
+    <p>Eine Anmeldung für A+Pay, deine Anbieterkarten und verbundene Marken-Apps.</p>
+    <div class="login-visual"><div class="login-ring"></div><span class="brand-mark giant">A+</span></div>
+  </div>
+  <div class="auth-card glass-card reveal">
+    <div class="brand auth-brand"><span class="brand-mark">A+</span><span>PAY</span></div>
+    <h2>Anmelden</h2>
+    <p class="muted">Weiter zu deiner persönlichen Übersicht.</p>
+    <a class="apple-login-button" href="{% url 'apple-login' %}{% if next %}?next={{ next|urlencode }}{% endif %}">
+      <span class="apple-login-symbol" aria-hidden="true"></span>
+      <span>Mit Apple fortfahren</span>
+    </a>
+    <p class="auth-privacy-note">Apple übermittelt nur die von dir freigegebenen Kontodaten.</p>
+    <div class="auth-divider"><span>oder mit Passwort</span></div>
+    <form method="post" class="stack-form">
+      {% csrf_token %}
+      {{ form.as_p }}
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <button class="btn btn-primary btn-block btn-xl">Anmelden <span>→</span></button>
+    </form>
+    <p class="auth-switch">Neu bei A+Pay? <a href="{% url 'register' %}">Konto erstellen</a></p>
+  </div>
+</section>
+{% endblock %}
