@@ -1,11 +1,13 @@
 from django.urls import path
 
-from . import api, views
+from . import api, apple_auth, views
 
 urlpatterns = [
     path("", views.landing, name="landing"),
     path("health/", views.health, name="health"),
     path("accounts/register/", views.register_customer_view, name="register"),
+    path("accounts/apple/", apple_auth.apple_login_start, name="apple-login"),
+    path("accounts/apple/callback/", apple_auth.apple_login_callback, name="apple-login-callback"),
     path("dashboard/", views.dashboard_router, name="dashboard"),
     path("platform/", views.platform_dashboard, name="platform-dashboard"),
     path("platform/businesses/new/", views.platform_business_create, name="platform-business-create"),
