@@ -30,7 +30,7 @@ jobs:
       APPLE_CLIENT_ID: ${{ secrets.APPLE_CLIENT_ID }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
-      APPLE_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}
+      APPLE_PRIVATE_KEY_INPUT: ${{ secrets.APPLE_PRIVATE_KEY_BASE64 }}
 
     steps:
       - name: Validate deployment secrets
@@ -39,6 +39,37 @@ jobs:
           set -euo pipefail
           test -n "$SSH_HOST" || (echo "HOST secret is missing" && exit 1)
           test -n "$SSHPASS" || (echo "PASS secret is missing" && exit 1)
+          test -n "$APPLE_CLIENT_ID" || (echo "APPLE_CLIENT_ID secret is missing" && exit 1)
+          test -n "$APPLE_TEAM_ID" || (echo "APPLE_TEAM_ID secret is missing" && exit 1)
+          test -n "$APPLE_KEY_ID" || (echo "APPLE_KEY_ID secret is missing" && exit 1)
+          test -n "$APPLE_PRIVATE_KEY_INPUT" || (echo "APPLE_PRIVATE_KEY_BASE64 secret is missing" && exit 1)
+
+      - name: Normalize and validate Apple private key
+        shell: bash
+        run: |
+          set -euo pipefail
+          if printf '%s' "$APPLE_PRIVATE_KEY_INPUT" | grep -q -- '-----BEGIN PRIVATE KEY-----'; then
+            APPLE_PRIVATE_KEY_NORMALIZED="$(printf '%s' "$APPLE_PRIVATE_KEY_INPUT" | tr -d '\r' | base64 -w0)"
+          else
+            APPLE_PRIVATE_KEY_NORMALIZED="$(printf '%s' "$APPLE_PRIVATE_KEY_INPUT" | tr -d '\r\n ')"
+          fi
+
+          key_file="$(mktemp)"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$APPLE_PRIVATE_KEY_NORMALIZED" | base64 --decode > "$key_file" 2>/dev/null || {
+            echo "APPLE_PRIVATE_KEY_BASE64 is neither a raw .p8 key nor valid Base64."
+            exit 1
+          }
+          grep -q -- '-----BEGIN PRIVATE KEY-----' "$key_file" || {
+            echo "The decoded Apple key has no private-key header."
+            exit 1
+          }
+          openssl pkey -in "$key_file" -noout >/dev/null 2>&1 || {
+            echo "The Apple .p8 private key cannot be parsed by OpenSSL."
+            exit 1
+          }
+          echo "APPLE_PRIVATE_KEY_NORMALIZED=$APPLE_PRIVATE_KEY_NORMALIZED" >> "$GITHUB_ENV"
+          echo "Apple .p8 key format is valid."
 
       - name: Install SSH client
         shell: bash
@@ -50,59 +81,21 @@ jobs:
           ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Provision and deploy
+      - name: Deploy and validate Apple login
         shell: bash
         run: |
           set -euo pipefail
           sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "APP_DIR='$APP_DIR' DOMAIN='$DOMAIN' REPOSITORY='https://github.com/${GITHUB_REPOSITORY}.git' APPLE_CLIENT_ID='$APPLE_CLIENT_ID' APPLE_TEAM_ID='$APPLE_TEAM_ID' APPLE_KEY_ID='$APPLE_KEY_ID' APPLE_PRIVATE_KEY_BASE64='$APPLE_PRIVATE_KEY_BASE64' bash -se" <<'REMOTE'
+            "APP_DIR='$APP_DIR' DOMAIN='$DOMAIN' REPOSITORY='https://github.com/${GITHUB_REPOSITORY}.git' APPLE_CLIENT_ID='$APPLE_CLIENT_ID' APPLE_TEAM_ID='$APPLE_TEAM_ID' APPLE_KEY_ID='$APPLE_KEY_ID' APPLE_PRIVATE_KEY_BASE64='$APPLE_PRIVATE_KEY_NORMALIZED' bash -se" <<'REMOTE'
           set -Eeuo pipefail
-          export DEBIAN_FRONTEND=noninteractive
-
-          apt-get update
-          apt-get install -y git curl ca-certificates openssl nginx certbot
-
-          if ! command -v docker >/dev/null 2>&1; then
-            curl -fsSL https://get.docker.com | sh
-          fi
-          systemctl enable --now docker
-          systemctl enable --now nginx
-
-          mkdir -p "$APP_DIR"
-          if [ ! -d "$APP_DIR/.git" ]; then
-            rm -rf "$APP_DIR"
-            git clone "$REPOSITORY" "$APP_DIR"
-          fi
-
           cd "$APP_DIR"
           git fetch --prune origin main
           git checkout -B main origin/main
           git reset --hard origin/main
 
-          if [ ! -f .env ]; then
-            DB_PASSWORD="$(openssl rand -hex 24)"
-            DJANGO_SECRET_KEY="$(openssl rand -hex 48)"
-            cat > .env <<ENV
-          DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
-          DJANGO_DEBUG=0
-          DJANGO_ALLOWED_HOSTS=$DOMAIN,localhost,127.0.0.1
-          DJANGO_CSRF_TRUSTED_ORIGINS=https://$DOMAIN
-          DJANGO_TIME_ZONE=Europe/Berlin
-          DJANGO_SECURE_COOKIES=1
-          DJANGO_HSTS_SECONDS=31536000
-          DATABASE_URL=postgresql://apluspay:$DB_PASSWORD@db:5432/apluspay
-          POSTGRES_DB=apluspay
-          POSTGRES_USER=apluspay
-          POSTGRES_PASSWORD=$DB_PASSWORD
-          GUNICORN_WORKERS=3
-          ENV
-            chmod 600 .env
-          fi
-
           upsert_env() {
             key="$1"
             value="$2"
-            [ -n "$value" ] || return 0
             escaped="$(printf '%s' "$value" | sed 's/[&|]/\\&/g')"
             if grep -q "^${key}=" .env; then
               sed -i "s|^${key}=.*|${key}=${escaped}|" .env
@@ -111,21 +104,19 @@ jobs:
             fi
           }
 
-          upsert_env APPLE_CLIENT_ID "${APPLE_CLIENT_ID:-}"
-          upsert_env APPLE_TEAM_ID "${APPLE_TEAM_ID:-}"
-          upsert_env APPLE_KEY_ID "${APPLE_KEY_ID:-}"
-          upsert_env APPLE_PRIVATE_KEY_BASE64 "${APPLE_PRIVATE_KEY_BASE64:-}"
+          upsert_env APPLE_CLIENT_ID "$APPLE_CLIENT_ID"
+          upsert_env APPLE_TEAM_ID "$APPLE_TEAM_ID"
+          upsert_env APPLE_KEY_ID "$APPLE_KEY_ID"
+          upsert_env APPLE_PRIVATE_KEY_BASE64 "$APPLE_PRIVATE_KEY_BASE64"
           upsert_env APPLE_REDIRECT_URI "https://$DOMAIN/accounts/apple/callback/"
           chmod 600 .env
 
           docker compose up -d --build --remove-orphans
-
           for attempt in $(seq 1 40); do
             if curl --fail --silent --show-error http://127.0.0.1:8020/health/ >/dev/null; then
               break
             fi
             if [ "$attempt" -eq 40 ]; then
-              echo "Application health check failed."
               docker compose ps
               docker compose logs --tail=250 web
               exit 1
@@ -134,144 +125,57 @@ jobs:
           done
 
           docker compose exec -T web python manage.py shell -c \
-            'from pay.apple_auth import apple_login_is_configured; print("Apple-Anmeldung:", "konfiguriert" if apple_login_is_configured() else "Zugangsdaten fehlen")'
-
-          CREDENTIALS_FILE="$APP_DIR/.platform-admin-credentials"
-          if [ ! -f "$CREDENTIALS_FILE" ]; then
-            ADMIN_PASSWORD="$(openssl rand -hex 16)"
-            cat > "$CREDENTIALS_FILE" <<CREDS
-          URL=https://$DOMAIN/accounts/login/
-          USERNAME=platform
-          PASSWORD=$ADMIN_PASSWORD
-          CREDS
-            chmod 600 "$CREDENTIALS_FILE"
-          else
-            ADMIN_PASSWORD="$(awk -F= '/^PASSWORD=/{print $2}' "$CREDENTIALS_FILE")"
-          fi
-
-          docker compose exec -T \
-            -e DJANGO_SUPERUSER_PASSWORD="$ADMIN_PASSWORD" \
-            web python manage.py createsuperuser \
-            --noinput --username platform --email admin@aplus-solution.de \
-            >/dev/null 2>&1 || true
-
-          mkdir -p /var/www/certbot/.well-known/acme-challenge
-          mkdir -p /etc/ssl/apluspay
-
-          if [ ! -s /etc/ssl/apluspay/fullchain.pem ] || [ ! -s /etc/ssl/apluspay/privkey.pem ]; then
-            openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
-              -keyout /etc/ssl/apluspay/privkey.pem \
-              -out /etc/ssl/apluspay/fullchain.pem \
-              -subj "/CN=$DOMAIN" \
-              -addext "subjectAltName=DNS:$DOMAIN" >/dev/null 2>&1
-            chmod 600 /etc/ssl/apluspay/privkey.pem
-          fi
-
-          if [ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
-            CERT_FILE="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
-            KEY_FILE="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
-          else
-            CERT_FILE="/etc/ssl/apluspay/fullchain.pem"
-            KEY_FILE="/etc/ssl/apluspay/privkey.pem"
-          fi
-
-          rm -f /etc/nginx/sites-enabled/default
-          rm -f /etc/nginx/sites-enabled/apluspay.conf
-          rm -f /etc/nginx/conf.d/apluspay.conf
-
-          for item in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
-            [ -e "$item" ] || continue
-            if grep -Fq "$DOMAIN" "$item" 2>/dev/null; then
-              rm -f "$item"
-            fi
-          done
-
-          cat > /etc/nginx/conf.d/apluspay.conf <<NGINX
-          server {
-              listen 80 default_server;
-              listen [::]:80 default_server;
-              server_name $DOMAIN _;
-
-              client_max_body_size 20M;
-
-              location ^~ /.well-known/acme-challenge/ {
-                  root /var/www/certbot;
-                  default_type text/plain;
-                  try_files \$uri =404;
-              }
-
-              location / {
-                  proxy_pass http://127.0.0.1:8020;
-                  proxy_set_header Host $DOMAIN;
-                  proxy_set_header X-Real-IP \$remote_addr;
-                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto \$scheme;
-                  proxy_read_timeout 90;
-              }
-          }
-
-          server {
-              listen 443 ssl http2 default_server;
-              listen [::]:443 ssl http2 default_server;
-              server_name $DOMAIN _;
-
-              ssl_certificate $CERT_FILE;
-              ssl_certificate_key $KEY_FILE;
-              ssl_protocols TLSv1.2 TLSv1.3;
-              ssl_session_cache shared:APaySSL:10m;
-
-              client_max_body_size 20M;
-
-              location / {
-                  proxy_pass http://127.0.0.1:8020;
-                  proxy_set_header Host $DOMAIN;
-                  proxy_set_header X-Real-IP \$remote_addr;
-                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-                  proxy_set_header X-Forwarded-Proto https;
-                  proxy_read_timeout 90;
-              }
-          }
-          NGINX
-
-          if command -v ufw >/dev/null 2>&1; then
-            ufw allow 80/tcp >/dev/null 2>&1 || true
-            ufw allow 443/tcp >/dev/null 2>&1 || true
-          fi
-
-          nginx -t
-          systemctl reload nginx
-
-          certbot certonly \
-            --webroot \
-            --webroot-path /var/www/certbot \
-            --non-interactive \
-            --agree-tos \
-            --register-unsafely-without-email \
-            --keep-until-expiring \
-            -d "$DOMAIN" || true
-
-          if [ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
-            sed -i \
-              -e "s#/etc/ssl/apluspay/fullchain.pem#/etc/letsencrypt/live/$DOMAIN/fullchain.pem#g" \
-              -e "s#/etc/ssl/apluspay/privkey.pem#/etc/letsencrypt/live/$DOMAIN/privkey.pem#g" \
-              /etc/nginx/conf.d/apluspay.conf
-          fi
-
-          nginx -t
-          systemctl reload nginx
-          curl --fail --silent --show-error -H "Host: $DOMAIN" http://127.0.0.1/health/ >/dev/null
-          curl --fail --silent --show-error --insecure \
-            --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/health/" >/dev/null
-          docker compose ps
+            'from pay.apple_auth import apple_login_is_configured, _client_secret; assert apple_login_is_configured(), "Apple settings are incomplete"; token = _client_secret(); assert isinstance(token, str) and token.count(".") == 2, "Apple client secret JWT is invalid"; print("Apple-Anmeldung: vollständig konfiguriert; Client-Secret erfolgreich erzeugt")'
           REMOTE
 
-      - name: Verify public endpoint
+      - name: Verify public Apple authorization redirect
+        shell: bash
+        run: |
+          set -euo pipefail
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          trap 'rm -f "$headers" "$body"' EXIT
+
+          status="$(curl --silent --show-error --output "$body" --dump-header "$headers" --max-redirs 0 --write-out '%{http_code}' "https://$DOMAIN/accounts/apple/")"
+          test "$status" = "302" || {
+            echo "Expected HTTP 302 from the Apple login start route, received $status."
+            cat "$headers"
+            exit 1
+          }
+          location="$(tr -d '\r' < "$headers" | awk 'tolower($1) == "location:" {$1=""; sub(/^ /, ""); print; exit}')"
+
+          python - "$location" "$APPLE_CLIENT_ID" "https://$DOMAIN/accounts/apple/callback/" <<'PY'
+          import sys
+          from urllib.parse import parse_qs, urlparse
+
+          location, expected_client_id, expected_redirect = sys.argv[1:]
+          parsed = urlparse(location)
+          params = parse_qs(parsed.query)
+          assert parsed.scheme == "https" and parsed.netloc == "appleid.apple.com"
+          assert parsed.path == "/auth/authorize"
+          assert params.get("client_id") == [expected_client_id]
+          assert params.get("redirect_uri") == [expected_redirect]
+          assert params.get("response_type") == ["code"]
+          assert params.get("response_mode") == ["form_post"]
+          assert params.get("scope") == ["name email"]
+          assert params.get("state", [""])[0]
+          assert params.get("nonce", [""])[0]
+          print("A+Pay redirects to Apple with the expected client and callback URL.")
+          PY
+
+          apple_status="$(curl --silent --show-error --location --output /dev/null --write-out '%{http_code}' --connect-timeout 15 --max-time 45 "$location")"
+          case "$apple_status" in
+            200|302) echo "Apple authorization endpoint is reachable (HTTP $apple_status)." ;;
+            *) echo "Apple authorization endpoint rejected the request (HTTP $apple_status)."; exit 1 ;;
+          esac
+
+      - name: Verify public health endpoint
         shell: bash
         run: |
           curl --fail --silent --show-error \
             --retry 15 --retry-delay 5 --retry-all-errors \
             --connect-timeout 10 --max-time 120 \
-            https://pay.smarbiz.sbs/health/
+            "https://$DOMAIN/health/"
 
       - name: Report deployment result
         if: always() && github.event_name == 'issues'
@@ -281,8 +185,8 @@ jobs:
             const status = '${{ job.status }}';
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const body = status === 'success'
-              ? `✅ Die Produktionsbereitstellung wurde erfolgreich abgeschlossen.\n\n- Anwendung: https://pay.smarbiz.sbs/\n- Systemstatus: https://pay.smarbiz.sbs/health/\n- Ablauf: ${runUrl}`
-              : `❌ Die Produktionsbereitstellung ist fehlgeschlagen. Protokoll: ${runUrl}`;
+              ? `✅ Die Produktionsbereitstellung und Apple-Anmeldung wurden erfolgreich geprüft.\n\n- Anwendung: https://pay.smarbiz.sbs/\n- Apple-Anmeldung: https://pay.smarbiz.sbs/accounts/apple/\n- Systemstatus: https://pay.smarbiz.sbs/health/\n- Ablauf: ${runUrl}`
+              : `❌ Die Produktionsbereitstellung oder Apple-Prüfung ist fehlgeschlagen. Protokoll: ${runUrl}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
