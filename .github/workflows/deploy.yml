@@ -1,0 +1,265 @@
+name: Deploy A+Pay Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: apluspay-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name != 'issues' || (github.event.issue.title == 'deploy-apluspay-production' && github.actor == github.repository_owner)
+    name: Deploy to Hetzner
+    runs-on: ubuntu-latest
+    env:
+      SSH_HOST: ${{ secrets.HOST }}
+      SSHPASS: ${{ secrets.PASS }}
+      SSH_USER: root
+      SSH_PORT: "22"
+      APP_DIR: /root/apluspay
+      DOMAIN: pay.smarbiz.sbs
+
+    steps:
+      - name: Validate deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" || (echo "HOST secret is missing" && exit 1)
+          test -n "$SSHPASS" || (echo "PASS secret is missing" && exit 1)
+
+      - name: Install SSH client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y sshpass >/dev/null
+          install -m 700 -d ~/.ssh
+          ssh-keyscan -H -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Provision and deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "APP_DIR='$APP_DIR' DOMAIN='$DOMAIN' REPOSITORY='https://github.com/${GITHUB_REPOSITORY}.git' bash -se" <<'REMOTE'
+          set -Eeuo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+
+          apt-get update
+          apt-get install -y git curl ca-certificates openssl nginx certbot
+
+          if ! command -v docker >/dev/null 2>&1; then
+            curl -fsSL https://get.docker.com | sh
+          fi
+          systemctl enable --now docker
+          systemctl enable --now nginx
+
+          mkdir -p "$APP_DIR"
+          if [ ! -d "$APP_DIR/.git" ]; then
+            rm -rf "$APP_DIR"
+            git clone "$REPOSITORY" "$APP_DIR"
+          fi
+
+          cd "$APP_DIR"
+          git fetch --prune origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
+
+          if [ ! -f .env ]; then
+            DB_PASSWORD="$(openssl rand -hex 24)"
+            DJANGO_SECRET_KEY="$(openssl rand -hex 48)"
+            cat > .env <<ENV
+          DJANGO_SECRET_KEY=$DJANGO_SECRET_KEY
+          DJANGO_DEBUG=0
+          DJANGO_ALLOWED_HOSTS=$DOMAIN,localhost,127.0.0.1
+          DJANGO_CSRF_TRUSTED_ORIGINS=https://$DOMAIN
+          DJANGO_TIME_ZONE=Europe/Berlin
+          DJANGO_SECURE_COOKIES=1
+          DJANGO_HSTS_SECONDS=31536000
+          DATABASE_URL=postgresql://apluspay:$DB_PASSWORD@db:5432/apluspay
+          POSTGRES_DB=apluspay
+          POSTGRES_USER=apluspay
+          POSTGRES_PASSWORD=$DB_PASSWORD
+          GUNICORN_WORKERS=3
+          ENV
+            chmod 600 .env
+          fi
+
+          docker compose up -d --build --remove-orphans
+
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent --show-error http://127.0.0.1:8020/health/ >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 40 ]; then
+              echo "Application health check failed."
+              docker compose ps
+              docker compose logs --tail=250 web
+              exit 1
+            fi
+            sleep 3
+          done
+
+          CREDENTIALS_FILE="$APP_DIR/.platform-admin-credentials"
+          if [ ! -f "$CREDENTIALS_FILE" ]; then
+            ADMIN_PASSWORD="$(openssl rand -hex 16)"
+            cat > "$CREDENTIALS_FILE" <<CREDS
+          URL=https://$DOMAIN/accounts/login/
+          USERNAME=platform
+          PASSWORD=$ADMIN_PASSWORD
+          CREDS
+            chmod 600 "$CREDENTIALS_FILE"
+          else
+            ADMIN_PASSWORD="$(awk -F= '/^PASSWORD=/{print $2}' "$CREDENTIALS_FILE")"
+          fi
+
+          docker compose exec -T \
+            -e DJANGO_SUPERUSER_PASSWORD="$ADMIN_PASSWORD" \
+            web python manage.py createsuperuser \
+            --noinput --username platform --email admin@aplus-solution.de \
+            >/dev/null 2>&1 || true
+
+          mkdir -p /var/www/certbot/.well-known/acme-challenge
+          mkdir -p /etc/ssl/apluspay
+
+          if [ ! -s /etc/ssl/apluspay/fullchain.pem ] || [ ! -s /etc/ssl/apluspay/privkey.pem ]; then
+            openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
+              -keyout /etc/ssl/apluspay/privkey.pem \
+              -out /etc/ssl/apluspay/fullchain.pem \
+              -subj "/CN=$DOMAIN" \
+              -addext "subjectAltName=DNS:$DOMAIN" >/dev/null 2>&1
+            chmod 600 /etc/ssl/apluspay/privkey.pem
+          fi
+
+          if [ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
+            CERT_FILE="/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
+            KEY_FILE="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
+          else
+            CERT_FILE="/etc/ssl/apluspay/fullchain.pem"
+            KEY_FILE="/etc/ssl/apluspay/privkey.pem"
+          fi
+
+          rm -f /etc/nginx/sites-enabled/default
+          rm -f /etc/nginx/sites-enabled/apluspay.conf
+          rm -f /etc/nginx/conf.d/apluspay.conf
+
+          for item in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
+            [ -e "$item" ] || continue
+            if grep -Fq "$DOMAIN" "$item" 2>/dev/null; then
+              rm -f "$item"
+            fi
+          done
+
+          cat > /etc/nginx/conf.d/apluspay.conf <<NGINX
+          server {
+              listen 80 default_server;
+              listen [::]:80 default_server;
+              server_name $DOMAIN _;
+
+              client_max_body_size 20M;
+
+              location ^~ /.well-known/acme-challenge/ {
+                  root /var/www/certbot;
+                  default_type text/plain;
+                  try_files \$uri =404;
+              }
+
+              location / {
+                  proxy_pass http://127.0.0.1:8020;
+                  proxy_set_header Host $DOMAIN;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  proxy_read_timeout 90;
+              }
+          }
+
+          server {
+              listen 443 ssl http2 default_server;
+              listen [::]:443 ssl http2 default_server;
+              server_name $DOMAIN _;
+
+              ssl_certificate $CERT_FILE;
+              ssl_certificate_key $KEY_FILE;
+              ssl_protocols TLSv1.2 TLSv1.3;
+              ssl_session_cache shared:APaySSL:10m;
+
+              client_max_body_size 20M;
+
+              location / {
+                  proxy_pass http://127.0.0.1:8020;
+                  proxy_set_header Host $DOMAIN;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto https;
+                  proxy_read_timeout 90;
+              }
+          }
+          NGINX
+
+          if command -v ufw >/dev/null 2>&1; then
+            ufw allow 80/tcp >/dev/null 2>&1 || true
+            ufw allow 443/tcp >/dev/null 2>&1 || true
+          fi
+
+          nginx -t
+          systemctl reload nginx
+
+          certbot certonly \
+            --webroot \
+            --webroot-path /var/www/certbot \
+            --non-interactive \
+            --agree-tos \
+            --register-unsafely-without-email \
+            --keep-until-expiring \
+            -d "$DOMAIN" || true
+
+          if [ -s "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" ] && [ -s "/etc/letsencrypt/live/$DOMAIN/privkey.pem" ]; then
+            sed -i \
+              -e "s#/etc/ssl/apluspay/fullchain.pem#/etc/letsencrypt/live/$DOMAIN/fullchain.pem#g" \
+              -e "s#/etc/ssl/apluspay/privkey.pem#/etc/letsencrypt/live/$DOMAIN/privkey.pem#g" \
+              /etc/nginx/conf.d/apluspay.conf
+          fi
+
+          nginx -t
+          systemctl reload nginx
+          curl --fail --silent --show-error -H "Host: $DOMAIN" http://127.0.0.1/health/ >/dev/null
+          curl --fail --silent --show-error --insecure \
+            --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/health/" >/dev/null
+          docker compose ps
+          REMOTE
+
+      - name: Verify public endpoint
+        shell: bash
+        run: |
+          curl --fail --silent --show-error \
+            --retry 15 --retry-delay 5 --retry-all-errors \
+            --connect-timeout 10 --max-time 120 \
+            https://pay.smarbiz.sbs/health/
+
+      - name: Report deployment result
+        if: always() && github.event_name == 'issues'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ job.status }}';
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = status === 'success'
+              ? `✅ Production deployment completed successfully.\n\n- URL: https://pay.smarbiz.sbs/\n- Health: https://pay.smarbiz.sbs/health/\n- Workflow: ${runUrl}`
+              : `❌ Production deployment failed. Review the workflow logs: ${runUrl}`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
