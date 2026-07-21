@@ -7,9 +7,20 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import (
-    AppNotification, AuditEvent, Business, BusinessSettings, CustomerVendorEnrollment,
-    LedgerEntry, Location, MemberProfile, Membership, PaymentRequest, Plan, Subscription,
-    VendorApp, Wallet,
+    AppNotification,
+    AuditEvent,
+    Business,
+    BusinessSettings,
+    CustomerVendorEnrollment,
+    LedgerEntry,
+    Location,
+    MemberProfile,
+    Membership,
+    PaymentRequest,
+    Plan,
+    Subscription,
+    VendorApp,
+    Wallet,
 )
 
 User = get_user_model()
@@ -29,7 +40,11 @@ def is_platform_admin(user):
 
 
 def get_active_membership(user, business=None):
-    memberships = Membership.objects.select_related("business").filter(user=user, is_active=True, business__status__in=[Business.Status.TRIAL, Business.Status.ACTIVE])
+    memberships = Membership.objects.select_related("business").filter(
+        user=user,
+        is_active=True,
+        business__status__in=[Business.Status.TRIAL, Business.Status.ACTIVE],
+    )
     if business is not None:
         memberships = memberships.filter(business=business)
     return memberships.first()
@@ -60,15 +75,52 @@ def profile_display_name(user):
 
 
 @transaction.atomic
-def provision_business(*, business_name, slug, owner_username, owner_email, owner_password, plan, location_name="Hauptstandort", category="Hospitality", actor=None):
-    owner = User.objects.create_user(username=owner_username, email=owner_email, password=owner_password)
-    business = Business.objects.create(name=business_name, slug=slug, contact_email=owner_email, category=category)
-    Membership.objects.create(user=owner, business=business, role=Membership.Role.OWNER, can_manage_content=True)
+def provision_business(
+    *,
+    business_name,
+    slug,
+    owner_username,
+    owner_email,
+    owner_password,
+    plan,
+    location_name="Hauptstandort",
+    category="Gastronomie",
+    actor=None,
+):
+    owner = User.objects.create_user(
+        username=owner_username,
+        email=owner_email,
+        password=owner_password,
+    )
+    business = Business.objects.create(
+        name=business_name,
+        slug=slug,
+        contact_email=owner_email,
+        category=category,
+    )
+    Membership.objects.create(
+        user=owner,
+        business=business,
+        role=Membership.Role.OWNER,
+        can_manage_content=True,
+    )
     Location.objects.create(business=business, name=location_name, slug="main")
     BusinessSettings.objects.create(business=business)
     VendorApp.objects.create(business=business)
-    Subscription.objects.create(business=business, plan=plan, status=Subscription.Status.TRIAL, trial_ends_at=timezone.now() + timedelta(days=14))
-    AuditEvent.objects.create(actor=actor, business=business, action="platform.business_created", object_type="business", object_id=str(business.pk), details={"owner_username": owner.username, "plan": plan.code})
+    Subscription.objects.create(
+        business=business,
+        plan=plan,
+        status=Subscription.Status.TRIAL,
+        trial_ends_at=timezone.now() + timedelta(days=14),
+    )
+    AuditEvent.objects.create(
+        actor=actor,
+        business=business,
+        action="platform.business_created",
+        object_type="business",
+        object_id=str(business.pk),
+        details={"owner_username": owner.username, "plan": plan.code},
+    )
     return business, owner
 
 
@@ -79,20 +131,37 @@ def register_customer(*, form):
     user.first_name = form.cleaned_data["first_name"]
     user.last_name = form.cleaned_data["last_name"]
     user.save()
-    MemberProfile.objects.create(user=user, display_name=user.get_full_name(), phone=form.cleaned_data.get("phone", ""), marketing_opt_in=form.cleaned_data.get("marketing_opt_in", False))
+    MemberProfile.objects.create(
+        user=user,
+        display_name=user.get_full_name(),
+        phone=form.cleaned_data.get("phone", ""),
+        marketing_opt_in=form.cleaned_data.get("marketing_opt_in", False),
+    )
     return user
 
 
 @transaction.atomic
-def enroll_customer(*, user, business, source=CustomerVendorEnrollment.Source.APLUSPAY, external_customer_id=""):
+def enroll_customer(
+    *,
+    user,
+    business,
+    source=CustomerVendorEnrollment.Source.APLUSPAY,
+    external_customer_id="",
+):
     if not business.is_active:
         raise ValidationError("Dieser Anbieter ist derzeit nicht verfügbar.")
     enrollment, _ = CustomerVendorEnrollment.objects.update_or_create(
-        user=user, business=business,
-        defaults={"is_active": True, "source": source, "external_customer_id": external_customer_id},
+        user=user,
+        business=business,
+        defaults={
+            "is_active": True,
+            "source": source,
+            "external_customer_id": external_customer_id,
+        },
     )
     wallet, created = Wallet.objects.get_or_create(
-        owner=user, business=business,
+        owner=user,
+        business=business,
         defaults={
             "location": business.locations.filter(is_active=True).first(),
             "display_name": profile_display_name(user),
@@ -101,8 +170,21 @@ def enroll_customer(*, user, business, source=CustomerVendorEnrollment.Source.AP
         },
     )
     if created:
-        AppNotification.objects.create(recipient=user, business=business, kind=AppNotification.Kind.SYSTEM, title=f"Willkommen bei {business.name}", body="Deine digitale Karte ist bereit. Du kannst sie sofort in A+Pay verwenden.")
-        AuditEvent.objects.create(actor=user, business=business, action="customer.enrolled", object_type="wallet", object_id=str(wallet.pk), details={"source": source})
+        AppNotification.objects.create(
+            recipient=user,
+            business=business,
+            kind=AppNotification.Kind.SYSTEM,
+            title=f"Willkommen bei {business.name}",
+            body="Deine digitale Karte ist bereit. Du kannst sie sofort in A+Pay verwenden.",
+        )
+        AuditEvent.objects.create(
+            actor=user,
+            business=business,
+            action="customer.enrolled",
+            object_type="wallet",
+            object_id=str(wallet.pk),
+            details={"source": source},
+        )
     return enrollment, wallet
 
 
@@ -115,20 +197,52 @@ def create_staff_member(*, business, username, email, password, role, actor):
         if not actor_membership or actor_membership.role not in MANAGER_ROLES:
             raise PermissionDenied("Keine Berechtigung für diese Aktion.")
         if actor_membership.role == Membership.Role.MANAGER and role != Membership.Role.STAFF:
-            raise PermissionDenied("Manager dürfen nur Staff-Zugänge anlegen.")
+            raise PermissionDenied("Leitungen dürfen nur Mitarbeiterzugänge anlegen.")
     user = User.objects.create_user(username=username, email=email, password=password)
     Membership.objects.create(user=user, business=business, role=role)
-    AuditEvent.objects.create(actor=actor, business=business, action="membership.created", object_type="user", object_id=str(user.pk), details={"username": username, "role": role})
+    AuditEvent.objects.create(
+        actor=actor,
+        business=business,
+        action="membership.created",
+        object_type="user",
+        object_id=str(user.pk),
+        details={"username": username, "role": role},
+    )
     return user
 
 
 @transaction.atomic
-def create_customer_wallet(*, business, username, email, phone, password, display_name, initial_balance, actor):
-    user = User.objects.create_user(username=username, email=email, password=password, first_name=display_name)
+def create_customer_wallet(
+    *,
+    business,
+    username,
+    email,
+    phone,
+    password,
+    display_name,
+    initial_balance,
+    actor,
+):
+    user = User.objects.create_user(
+        username=username,
+        email=email,
+        password=password,
+        first_name=display_name,
+    )
     MemberProfile.objects.create(user=user, display_name=display_name, phone=phone)
-    _, wallet = enroll_customer(user=user, business=business, source=CustomerVendorEnrollment.Source.STAFF)
+    _, wallet = enroll_customer(
+        user=user,
+        business=business,
+        source=CustomerVendorEnrollment.Source.STAFF,
+    )
     if initial_balance and Decimal(str(initial_balance)) > 0:
-        post_wallet_entry(wallet=wallet, entry_type=LedgerEntry.Type.TOPUP, amount=initial_balance, actor=actor, description="Startguthaben")
+        post_wallet_entry(
+            wallet=wallet,
+            entry_type=LedgerEntry.Type.TOPUP,
+            amount=initial_balance,
+            actor=actor,
+            description="Startguthaben",
+        )
     return wallet
 
 
@@ -147,11 +261,23 @@ def update_wallet_tier(wallet):
 
 
 @transaction.atomic
-def post_wallet_entry(*, wallet, entry_type, amount, actor, location=None, payment_request=None, description="", order_reference="", idempotency_key="", ip_address=None):
+def post_wallet_entry(
+    *,
+    wallet,
+    entry_type,
+    amount,
+    actor,
+    location=None,
+    payment_request=None,
+    description="",
+    order_reference="",
+    idempotency_key="",
+    ip_address=None,
+):
     amount = normalize_amount(amount)
     locked_wallet = Wallet.objects.select_for_update().select_related("business").get(pk=wallet.pk)
     if locked_wallet.status != Wallet.Status.ACTIVE:
-        raise ValidationError("Dieses Wallet ist nicht aktiv.")
+        raise ValidationError("Dieses Guthabenkonto ist nicht aktiv.")
     if entry_type in CREDIT_TYPES:
         signed_amount = amount
     elif entry_type in DEBIT_TYPES:
@@ -159,7 +285,7 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, location=None, payme
     elif entry_type == LedgerEntry.Type.ADJUSTMENT:
         signed_amount = amount
     else:
-        raise ValidationError("Unbekannter Transaktionstyp.")
+        raise ValidationError("Unbekannte Transaktionsart.")
     before = locked_wallet.balance
     after = before + signed_amount
     if after < 0:
@@ -177,32 +303,89 @@ def post_wallet_entry(*, wallet, entry_type, amount, actor, location=None, payme
     if entry_type == LedgerEntry.Type.TOPUP:
         update_wallet_tier(locked_wallet)
     entry = LedgerEntry.objects.create(
-        business=locked_wallet.business, location=location or locked_wallet.location, wallet=locked_wallet,
-        payment_request=payment_request, entry_type=entry_type, amount=signed_amount,
-        balance_before=before, balance_after=after, description=description.strip(),
-        order_reference=order_reference.strip(), idempotency_key=idempotency_key.strip(), performed_by=actor,
+        business=locked_wallet.business,
+        location=location or locked_wallet.location,
+        wallet=locked_wallet,
+        payment_request=payment_request,
+        entry_type=entry_type,
+        amount=signed_amount,
+        balance_before=before,
+        balance_after=after,
+        description=description.strip(),
+        order_reference=order_reference.strip(),
+        idempotency_key=idempotency_key.strip(),
+        performed_by=actor,
     )
-    AuditEvent.objects.create(actor=actor, business=locked_wallet.business, action=f"wallet.{entry_type.lower()}", object_type="wallet", object_id=str(locked_wallet.pk), ip_address=ip_address, details={"ledger_entry_id": str(entry.pk), "bill_number": entry.bill_number, "member_number": locked_wallet.member_number, "amount": str(signed_amount), "balance_before": str(before), "balance_after": str(after), "order_reference": order_reference})
+    AuditEvent.objects.create(
+        actor=actor,
+        business=locked_wallet.business,
+        action=f"wallet.{entry_type.lower()}",
+        object_type="wallet",
+        object_id=str(locked_wallet.pk),
+        ip_address=ip_address,
+        details={
+            "ledger_entry_id": str(entry.pk),
+            "bill_number": entry.bill_number,
+            "member_number": locked_wallet.member_number,
+            "amount": str(signed_amount),
+            "balance_before": str(before),
+            "balance_after": str(after),
+            "order_reference": order_reference,
+        },
+    )
     return entry
 
 
 @transaction.atomic
-def create_payment_request(*, wallet, amount, tip_percentage, actor, location=None, description="", order_reference="", ip_address=None):
+def create_payment_request(
+    *,
+    wallet,
+    amount,
+    tip_percentage,
+    actor,
+    location=None,
+    description="",
+    order_reference="",
+    ip_address=None,
+):
     base_amount = normalize_amount(amount)
     tip_percentage = Decimal(str(tip_percentage or 0)).quantize(Decimal("0.01"))
-    tip_amount = (base_amount * tip_percentage / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    tip_amount = (base_amount * tip_percentage / Decimal("100")).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
     settings_obj, _ = BusinessSettings.objects.get_or_create(business=wallet.business)
     requires_confirmation = bool(settings_obj.require_customer_confirmation and wallet.owner_id)
     payment = PaymentRequest.objects.create(
-        business=wallet.business, location=location or wallet.location, wallet=wallet, created_by=actor,
-        base_amount=base_amount, tip_percentage=tip_percentage, tip_amount=tip_amount,
-        description=description.strip(), order_reference=order_reference.strip(),
-        customer_confirmation_required=requires_confirmation, expires_at=timezone.now() + timedelta(minutes=10),
+        business=wallet.business,
+        location=location or wallet.location,
+        wallet=wallet,
+        created_by=actor,
+        base_amount=base_amount,
+        tip_percentage=tip_percentage,
+        tip_amount=tip_amount,
+        description=description.strip(),
+        order_reference=order_reference.strip(),
+        customer_confirmation_required=requires_confirmation,
+        expires_at=timezone.now() + timedelta(minutes=10),
     )
     if wallet.owner_id:
-        AppNotification.objects.create(recipient=wallet.owner, business=wallet.business, location=payment.location, kind=AppNotification.Kind.PAYMENT, title=f"Zahlung bei {wallet.business.name}", body=f"Bitte bestätige {payment.total_amount} {wallet.business.currency}.", data={"payment_id": str(payment.pk)})
+        AppNotification.objects.create(
+            recipient=wallet.owner,
+            business=wallet.business,
+            location=payment.location,
+            kind=AppNotification.Kind.PAYMENT,
+            title=f"Zahlung bei {wallet.business.name}",
+            body=f"Bitte bestätige {payment.total_amount} {wallet.business.currency}.",
+            data={"payment_id": str(payment.pk)},
+        )
     if not requires_confirmation:
-        confirm_payment_request(payment=payment, actor=actor, ip_address=ip_address, staff_override=True)
+        confirm_payment_request(
+            payment=payment,
+            actor=actor,
+            ip_address=ip_address,
+            staff_override=True,
+        )
     return payment
 
 
@@ -217,17 +400,45 @@ def confirm_payment_request(*, payment, actor, ip_address=None, staff_override=F
         raise ValidationError("Diese Zahlungsanfrage ist abgelaufen.")
     if not staff_override and payment.wallet.owner_id != actor.id and not is_platform_admin(actor):
         raise PermissionDenied("Diese Zahlung gehört nicht zu deinem Konto.")
-    purchase = post_wallet_entry(wallet=payment.wallet, entry_type=LedgerEntry.Type.PURCHASE, amount=payment.base_amount, actor=payment.created_by, location=payment.location, payment_request=payment, description=payment.description or "A+Pay Zahlung", order_reference=payment.order_reference, ip_address=ip_address)
+    purchase = post_wallet_entry(
+        wallet=payment.wallet,
+        entry_type=LedgerEntry.Type.PURCHASE,
+        amount=payment.base_amount,
+        actor=payment.created_by,
+        location=payment.location,
+        payment_request=payment,
+        description=payment.description or "A+Pay-Zahlung",
+        order_reference=payment.order_reference,
+        ip_address=ip_address,
+    )
     tip_entry = None
     if payment.tip_amount > 0:
-        tip_entry = post_wallet_entry(wallet=payment.wallet, entry_type=LedgerEntry.Type.TIP, amount=payment.tip_amount, actor=payment.created_by, location=payment.location, payment_request=payment, description="Trinkgeld", order_reference=payment.order_reference, ip_address=ip_address)
+        tip_entry = post_wallet_entry(
+            wallet=payment.wallet,
+            entry_type=LedgerEntry.Type.TIP,
+            amount=payment.tip_amount,
+            actor=payment.created_by,
+            location=payment.location,
+            payment_request=payment,
+            description="Trinkgeld",
+            order_reference=payment.order_reference,
+            ip_address=ip_address,
+        )
     payment.purchase_entry = purchase
     payment.tip_entry = tip_entry
     payment.status = PaymentRequest.Status.CONFIRMED
     payment.confirmed_at = timezone.now()
     payment.save(update_fields=["purchase_entry", "tip_entry", "status", "confirmed_at"])
     if payment.wallet.owner_id:
-        AppNotification.objects.create(recipient=payment.wallet.owner, business=payment.business, location=payment.location, kind=AppNotification.Kind.PAYMENT, title="Zahlung erfolgreich", body=f"{payment.total_amount} {payment.business.currency} wurden bezahlt.", data={"bill_number": purchase.bill_number})
+        AppNotification.objects.create(
+            recipient=payment.wallet.owner,
+            business=payment.business,
+            location=payment.location,
+            kind=AppNotification.Kind.PAYMENT,
+            title="Zahlung erfolgreich",
+            body=f"{payment.total_amount} {payment.business.currency} wurden bezahlt.",
+            data={"bill_number": purchase.bill_number},
+        )
     return payment
 
 
@@ -245,10 +456,18 @@ def cancel_payment_request(*, payment, actor):
 @transaction.atomic
 def set_wallet_status(*, wallet, status, actor, ip_address=None):
     if status not in Wallet.Status.values:
-        raise ValidationError("Ungültiger Wallet-Status.")
+        raise ValidationError("Ungültiger Status des Guthabenkontos.")
     locked_wallet = Wallet.objects.select_for_update().get(pk=wallet.pk)
     old_status = locked_wallet.status
     locked_wallet.status = status
     locked_wallet.save(update_fields=["status", "updated_at"])
-    AuditEvent.objects.create(actor=actor, business=locked_wallet.business, action="wallet.status_changed", object_type="wallet", object_id=str(locked_wallet.pk), ip_address=ip_address, details={"from": old_status, "to": status})
+    AuditEvent.objects.create(
+        actor=actor,
+        business=locked_wallet.business,
+        action="wallet.status_changed",
+        object_type="wallet",
+        object_id=str(locked_wallet.pk),
+        ip_address=ip_address,
+        details={"from": old_status, "to": status},
+    )
     return locked_wallet

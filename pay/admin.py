@@ -6,6 +6,10 @@ from .models import (
     PushDevice, ReviewStatus, Subscription, VendorApp, Wallet,
 )
 
+admin.site.site_header = "A+Pay-Verwaltung"
+admin.site.site_title = "A+Pay-Verwaltung"
+admin.site.index_title = "Zentrale Plattformverwaltung"
+
 
 @admin.register(Business)
 class BusinessAdmin(admin.ModelAdmin):
