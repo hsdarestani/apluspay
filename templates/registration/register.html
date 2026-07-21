@@ -1,3 +1,30 @@
 {% extends 'pay/base.html' %}
-{% block title %}A+Pay Konto erstellen{% endblock %}
-{% block content %}<section class="auth-shell"><div class="auth-side"><span class="eyebrow">WELCOME TO A+PAY</span><h1>Dein Zugang zu allen Vendor-Wallets.</h1><p>Registriere dich einmal. Danach entscheidest du selbst, welchen Businesses du beitrittst.</p><div class="auth-benefits"><span>◈ Zentrale Vendor-Auswahl</span><span>◈ Sichere digitale Karten</span><span>◈ Angebote & Loyalty</span><span>◈ Optional mit Vendor-Apps verbunden</span></div></div><div class="auth-card glass-card reveal"><div class="brand auth-brand"><span class="brand-mark">A+</span><span>PAY</span></div><h2>Konto erstellen</h2><p class="muted">In weniger als einer Minute startklar.</p><form method="post" class="stack-form">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary btn-block btn-xl">Kostenlos registrieren</button></form><p class="auth-switch">Schon registriert? <a href="{% url 'login' %}">Jetzt einloggen</a></p></div></section>{% endblock %}
+{% block title %}A+Pay-Konto erstellen{% endblock %}
+{% block content %}
+<section class="auth-shell">
+  <div class="auth-side">
+    <span class="eyebrow">WILLKOMMEN BEI A+PAY</span>
+    <h1>Dein Zugang zu allen Anbieter-Guthaben.</h1>
+    <p>Registriere dich einmal. Danach entscheidest du selbst, welchen Anbietern du beitrittst.</p>
+    <div class="auth-benefits">
+      <span>◈ Zentrale Anbieterauswahl</span>
+      <span>◈ Sichere digitale Karten</span>
+      <span>◈ Angebote und Treuepunkte</span>
+      <span>◈ Optional mit Anbieter-Apps verbunden</span>
+    </div>
+  </div>
+  <div class="auth-card glass-card reveal">
+    <div class="brand auth-brand"><span class="brand-mark">A+</span><span>PAY</span></div>
+    <h2>Konto erstellen</h2>
+    <p class="muted">In weniger als einer Minute startklar.</p>
+    <a class="apple-login-button" href="{% url 'apple-login' %}">
+      <span class="apple-login-symbol" aria-hidden="true"></span>
+      <span>Mit Apple fortfahren</span>
+    </a>
+    <p class="auth-privacy-note">Mit Apple kannst du dein Kundenkonto ohne zusätzliches Passwort erstellen.</p>
+    <div class="auth-divider"><span>oder mit E-Mail und Passwort</span></div>
+    <form method="post" class="stack-form">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary btn-block btn-xl">Kostenlos registrieren</button></form>
+    <p class="auth-switch">Schon registriert? <a href="{% url 'login' %}">Jetzt anmelden</a></p>
+  </div>
+</section>
+{% endblock %}
