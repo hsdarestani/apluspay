@@ -1,13 +1,3 @@
-{% extends "pay/base.html" %}
+{% extends 'pay/base.html' %}
 {% block title %}Login · A+Pay{% endblock %}
-{% block content %}
-<section class="auth-shell">
-  <div class="auth-card panel">
-    <span class="eyebrow">Sicherer Zugang</span>
-    <h1>Willkommen bei A+Pay</h1>
-    <p class="muted">Melden Sie sich als Plattform-Admin, Betreiber, Mitarbeiter oder Kunde an.</p>
-    {% if form.errors %}<div class="alert">Benutzername oder Passwort ist nicht korrekt.</div>{% endif %}
-    <form method="post" class="stack-form">{% csrf_token %}{{ form.as_p }}<button class="btn btn-primary" type="submit">Einloggen</button></form>
-  </div>
-</section>
-{% endblock %}
+{% block content %}<section class="auth-shell"><div class="auth-side"><span class="eyebrow">WELCOME BACK</span><h1>Deine Wallets warten auf dich.</h1><p>Ein Login für A+Pay, deine Vendor-Karten und verbundene Brand Apps.</p><div class="login-visual"><div class="login-ring"></div><span class="brand-mark giant">A+</span></div></div><div class="auth-card glass-card reveal"><div class="brand auth-brand"><span class="brand-mark">A+</span><span>PAY</span></div><h2>Einloggen</h2><p class="muted">Weiter zu deinem persönlichen Hub.</p><form method="post" class="stack-form">{% csrf_token %}{{ form.as_p }}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}<button class="btn btn-primary btn-block btn-xl">Login <span>→</span></button></form><p class="auth-switch">Neu bei A+Pay? <a href="{% url 'register' %}">Konto erstellen</a></p></div></section>{% endblock %}

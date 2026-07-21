@@ -1,37 +1,36 @@
-{% extends "pay/base.html" %}
-{% block title %}A+Pay · Smart Wallet Platform{% endblock %}
+{% extends 'pay/base.html' %}
+{% block title %}A+Pay · One app for every place{% endblock %}
 {% block content %}
-<section class="hero">
-  <div class="hero-copy">
-    <span class="eyebrow">A+ SOLUTION DIGITAL PRODUCTS</span>
-    <h1>Das eigene Bezahlsystem für Cafés, Lounges und Hospitality.</h1>
-    <p>Guthaben aufladen, bargeldlos bezahlen, Kunden binden und jeden Standort zentral steuern – als sichere Multi-Tenant-Plattform.</p>
-    <div class="button-row">
-      <a class="btn btn-primary" href="{% url 'login' %}">Plattform öffnen</a>
-      <a class="btn btn-ghost" href="{{ mother_brand_url }}" target="_blank" rel="noopener">A+ Solution entdecken</a>
-    </div>
-    <div class="trust-row"><span>✓ Mandantenfähig</span><span>✓ Audit Ledger</span><span>✓ PWA & API-ready</span></div>
+<section class="hero central-hero">
+  <div class="hero-copy reveal">
+    <div class="eyebrow"><span class="pulse-dot"></span> THE CENTRAL PAYMENT & LOYALTY APP</div>
+    <h1>Ein Account.<br><span class="gradient-text">Alle deine Orte.</span></h1>
+    <p>Entdecke Cafés, Lounges und lokale Brands. Registriere dich einmal, sammle digitale Karten, bezahle aus deinem Guthaben und erhalte Angebote – alles in A+Pay.</p>
+    <div class="button-row"><a class="btn btn-primary btn-xl" href="{% url 'register' %}">A+Pay öffnen <span>→</span></a><a class="btn btn-ghost btn-xl" href="{% url 'login' %}">Ich habe ein Konto</a></div>
+    <div class="trust-row"><span>✓ Installierbare PWA</span><span>✓ Sichere Vendor-Wallets</span><span>✓ Ein Login für alle</span></div>
   </div>
-  <div class="hero-visual">
-    <div class="pay-card">
-      <div class="pay-card-head"><span class="brand-mark">A+</span><span>PAY</span></div>
-      <div class="card-label">AVAILABLE BALANCE</div>
-      <div class="card-balance">€ 200,00</div>
-      <div class="card-bottom"><span>MEMBER 8172 4031</span><span class="chip"></span></div>
+  <div class="hero-visual reveal delay-1">
+    <div class="orbit orbit-a"></div><div class="orbit orbit-b"></div>
+    <div class="phone-shell tilt-card">
+      <div class="phone-notch"></div>
+      <div class="mini-top"><span class="brand-mark">A+</span><span class="mini-avatar">HD</span></div>
+      <div class="mini-greeting"><small>Guten Tag</small><strong>Deine Wallets</strong></div>
+      <div class="mini-wallet yellow-card"><span>SAMS</span><strong>€ 128,40</strong><small>GOLD MEMBER · 4820 1937</small></div>
+      <div class="mini-row"><div><b>3</b><small>Vendor</small></div><div><b>480</b><small>Points</small></div><div><b>2</b><small>Offers</small></div></div>
+      <div class="mini-vendors"><i></i><i></i><i></i><span>Neue Orte entdecken</span></div>
     </div>
-    <div class="floating-stat"><small>Heute bezahlt</small><strong>€ 1.842</strong><span>+18,4%</span></div>
+    <div class="floating-chip chip-one">+ 120 Points</div><div class="floating-chip chip-two">Payment approved ✓</div>
   </div>
 </section>
-
-<section class="feature-grid section-pad">
-  <article><span class="feature-number">01</span><h3>Platform Admin</h3><p>Owner, Tarife, Standorte und den gesamten Betrieb aller Kunden zentral verwalten.</p></article>
-  <article><span class="feature-number">02</span><h3>Owner Cockpit</h3><p>Wallets, Mitarbeiter, Guthaben und Transaktionen pro Unternehmen strikt getrennt steuern.</p></article>
-  <article><span class="feature-number">03</span><h3>Staff Checkout</h3><p>Mit Mitgliedsnummer oder QR bezahlen – schnell, nachvollziehbar und ohne Bargeldkontakt.</p></article>
-  <article><span class="feature-number">04</span><h3>Customer Wallet</h3><p>Saldo, Loyalty Points, digitale Karte und Belege jederzeit auf dem Smartphone.</p></article>
+<section class="section-pad">
+  <div class="section-heading"><div><span class="eyebrow">HOW IT WORKS</span><h2>Von null zu deiner ersten Karte in Sekunden.</h2></div><p>Vendor Apps bleiben optional. Jeder Anbieter funktioniert vollständig in A+Pay und kann zusätzlich seine eigene App verbinden.</p></div>
+  <div class="feature-grid steps-grid">
+    <article class="interactive-card"><span class="feature-number">01</span><div class="feature-icon">◎</div><h3>Einmal registrieren</h3><p>Ein zentrales Kundenkonto für alle angeschlossenen Businesses.</p></article>
+    <article class="interactive-card"><span class="feature-number">02</span><div class="feature-icon">◇</div><h3>Vendor wählen</h3><p>Entdecke Anbieter oder öffne direkt die Einladung eines Vendors.</p></article>
+    <article class="interactive-card"><span class="feature-number">03</span><div class="feature-icon">▣</div><h3>Karte erhalten</h3><p>Wallet, QR-Code, Guthaben, Tier und Transaktionen sind sofort bereit.</p></article>
+    <article class="interactive-card"><span class="feature-number">04</span><div class="feature-icon">↗</div><h3>Überall verbinden</h3><p>Optional in die eigene Vendor-App wechseln – mit gemeinsamer API und Identity.</p></article>
+  </div>
 </section>
-
-<section class="dark-band section-pad">
-  <div><span class="eyebrow">PLATFORM BY DESIGN</span><h2>Ein Produkt. Beliebig viele Businesses.</h2></div>
-  <p>Jeder Mandant besitzt eigene Kunden, Mitarbeiter, Standorte und Ledger-Daten. Der Platform Admin bleibt die einzige globale Kontrollinstanz.</p>
-</section>
+{% if vendors %}<section class="section-pad vendor-preview-section"><div class="section-heading"><div><span class="eyebrow">LIVE ON A+PAY</span><h2>Deine nächsten Lieblingsorte.</h2></div></div><div class="vendor-grid">{% for vendor in vendors %}<article class="vendor-card interactive-card" style="--vendor:{{ vendor.primary_color }}"><div class="vendor-cover" {% if vendor.cover_url %}style="background-image:url('{{ vendor.cover_url }}')"{% endif %}></div><div class="vendor-card-body"><span class="vendor-logo">{% if vendor.logo_url %}<img src="{{ vendor.logo_url }}" alt="">{% else %}{{ vendor.name|slice:':1' }}{% endif %}</span><small>{{ vendor.category }}</small><h3>{{ vendor.name }}</h3><p>{{ vendor.description|default:'Wallet, Loyalty und exklusive Vorteile.'|truncatechars:100 }}</p></div></article>{% endfor %}</div></section>{% endif %}
+<section class="dark-band section-pad"><div><span class="eyebrow">FOR VENDORS</span><h2>Eine Plattform. Zwei Wege zur Marke.</h2></div><div class="integration-diagram"><div class="diagram-core"><span class="brand-mark">A+</span><b>PAY CORE</b></div><div class="diagram-path"><span>A+Pay Experience</span><span>Dedicated Vendor App</span></div><p>Der Vendor kann vollständig in A+Pay arbeiten oder zusätzlich eine eigene App mit eigener Brand Experience anbinden. Wallet, User und Transaktionen bleiben zentral synchronisierbar.</p></div></section>
 {% endblock %}

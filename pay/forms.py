@@ -1,7 +1,8 @@
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import UserCreationForm
 
-from .models import LedgerEntry, Membership, Plan, Wallet
+from .models import BusinessSettings, LedgerEntry, Location, Membership, Offer, Plan, VendorApp, Wallet
 
 User = get_user_model()
 
@@ -10,11 +11,35 @@ class StyledFormMixin:
     def apply_styles(self):
         for field in self.fields.values():
             field.widget.attrs.setdefault("class", "form-control")
+            field.widget.attrs.setdefault("placeholder", field.label)
+
+
+class CustomerRegistrationForm(StyledFormMixin, UserCreationForm):
+    email = forms.EmailField(label="E-Mail")
+    first_name = forms.CharField(label="Vorname", max_length=80)
+    last_name = forms.CharField(label="Nachname", max_length=80)
+    phone = forms.CharField(label="Telefon", max_length=40, required=False)
+    marketing_opt_in = forms.BooleanField(label="Ich möchte Angebote erhalten", required=False)
+
+    class Meta(UserCreationForm.Meta):
+        model = User
+        fields = ("username", "email", "first_name", "last_name", "phone", "password1", "password2", "marketing_opt_in")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.apply_styles()
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        if User.objects.filter(email__iexact=email).exists():
+            raise forms.ValidationError("Für diese E-Mail existiert bereits ein Konto.")
+        return email
 
 
 class BusinessProvisionForm(StyledFormMixin, forms.Form):
     business_name = forms.CharField(label="Unternehmensname", max_length=140)
     slug = forms.SlugField(label="Mandanten-ID", help_text="z. B. cafe-central")
+    category = forms.CharField(label="Kategorie", max_length=80, initial="Hospitality")
     owner_username = forms.CharField(label="Owner Benutzername", max_length=150)
     owner_email = forms.EmailField(label="Owner E-Mail")
     owner_password = forms.CharField(label="Initialpasswort", widget=forms.PasswordInput, min_length=10)
@@ -36,13 +61,7 @@ class StaffCreateForm(StyledFormMixin, forms.Form):
     username = forms.CharField(label="Benutzername", max_length=150)
     email = forms.EmailField(label="E-Mail", required=False)
     password = forms.CharField(label="Initialpasswort", widget=forms.PasswordInput, min_length=10)
-    role = forms.ChoiceField(
-        label="Rolle",
-        choices=[
-            (Membership.Role.MANAGER, Membership.Role.MANAGER.label),
-            (Membership.Role.STAFF, Membership.Role.STAFF.label),
-        ],
-    )
+    role = forms.ChoiceField(label="Rolle", choices=[(Membership.Role.MANAGER, "Manager"), (Membership.Role.STAFF, "Staff")])
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -74,9 +93,10 @@ class CustomerCreateForm(StyledFormMixin, forms.Form):
         return value
 
 
-class MoneyActionForm(StyledFormMixin, forms.Form):
+class PaymentRequestForm(StyledFormMixin, forms.Form):
     member_number = forms.CharField(label="Mitgliedsnummer", max_length=8)
     amount = forms.DecimalField(label="Betrag", min_value=0.01, decimal_places=2)
+    tip_percentage = forms.DecimalField(label="Trinkgeld %", min_value=0, max_value=100, decimal_places=2, initial=0)
     description = forms.CharField(label="Beschreibung", max_length=255, required=False)
     order_reference = forms.CharField(label="Bestellreferenz", max_length=100, required=False)
 
@@ -85,11 +105,55 @@ class MoneyActionForm(StyledFormMixin, forms.Form):
         self.apply_styles()
 
 
+MoneyActionForm = PaymentRequestForm
+
+
 class WalletMoneyForm(StyledFormMixin, forms.Form):
     action = forms.ChoiceField(choices=[(LedgerEntry.Type.TOPUP, "Aufladen"), (LedgerEntry.Type.REFUND, "Erstatten")])
     amount = forms.DecimalField(label="Betrag", min_value=0.01, decimal_places=2)
     description = forms.CharField(label="Beschreibung", max_length=255, required=False)
     order_reference = forms.CharField(label="Referenz", max_length=100, required=False)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.apply_styles()
+
+
+class OfferForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = Offer
+        fields = ["title", "body", "image_url", "target_tier", "starts_at", "ends_at", "is_active"]
+        widgets = {"starts_at": forms.DateTimeInput(attrs={"type": "datetime-local"}), "ends_at": forms.DateTimeInput(attrs={"type": "datetime-local"})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.apply_styles()
+
+
+class BusinessSettingsForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = BusinessSettings
+        fields = ["require_customer_confirmation", "tip_option_1", "tip_option_2", "tip_option_3", "tip_option_4", "gold_threshold", "platinum_threshold", "birthday_bonus", "loyalty_enabled", "reviews_enabled", "offers_enabled"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.apply_styles()
+
+
+class VendorAppForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = VendorApp
+        fields = ["mode", "app_name", "icon_url", "web_url", "ios_url", "android_url", "deep_link", "public_client_id", "show_in_apluspay", "shared_identity_enabled", "external_registration_enabled"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.apply_styles()
+
+
+class LocationForm(StyledFormMixin, forms.ModelForm):
+    class Meta:
+        model = Location
+        fields = ["name", "slug", "address", "google_review_url", "instagram_url", "tiktok_url", "is_active"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

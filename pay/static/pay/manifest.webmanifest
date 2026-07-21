@@ -1,9 +1,12 @@
 {
-  "name": "A+Pay Platform",
+  "name": "A+Pay Central",
   "short_name": "A+Pay",
+  "description": "One account for every vendor wallet, payment and loyalty experience.",
   "start_url": "/dashboard/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0A0D12",
-  "theme_color": "#F5B800",
-  "icons": [{"src": "/static/pay/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
+  "background_color": "#07090d",
+  "theme_color": "#07090d",
+  "orientation": "portrait-primary",
+  "icons": [{"src":"/static/pay/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
 }
