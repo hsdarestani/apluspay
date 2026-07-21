@@ -1,0 +1,66 @@
+name: Diagnose A+Pay Public Endpoint
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    if: github.event_name != 'issues' || (github.event.issue.title == 'diagnose-apluspay-public' && github.actor == github.repository_owner)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect DNS, TLS and HTTP diagnostics
+        id: diagnose
+        shell: bash
+        run: |
+          set +e
+          sudo apt-get update >/dev/null 2>&1
+          sudo apt-get install -y dnsutils >/dev/null 2>&1
+          {
+            echo '### DNS A'
+            dig +short A pay.smarbiz.sbs
+            echo '### DNS AAAA'
+            dig +short AAAA pay.smarbiz.sbs
+            echo '### HTTP HEAD'
+            curl -sS -I --connect-timeout 10 --max-time 20 http://pay.smarbiz.sbs/ 2>&1
+            echo '### HTTPS HEAD'
+            curl -sS -I --connect-timeout 10 --max-time 20 https://pay.smarbiz.sbs/ 2>&1
+            echo '### HTTPS health metrics'
+            curl -sS --connect-timeout 10 --max-time 20 \
+              -o /tmp/health-body \
+              -w 'http_code=%{http_code} remote_ip=%{remote_ip} ssl_verify=%{ssl_verify_result} time_total=%{time_total}\n' \
+              https://pay.smarbiz.sbs/health/ 2>&1
+            echo '### Health body'
+            head -c 500 /tmp/health-body 2>/dev/null || true
+            echo
+            echo '### TLS certificate'
+            timeout 20 openssl s_client -connect pay.smarbiz.sbs:443 -servername pay.smarbiz.sbs </dev/null 2>/dev/null \
+              | openssl x509 -noout -subject -issuer -dates 2>&1
+          } > /tmp/diagnostic.txt
+          cat /tmp/diagnostic.txt
+          {
+            echo 'diagnostic<<APAYEOF'
+            head -c 6000 /tmp/diagnostic.txt
+            echo
+            echo 'APAYEOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish diagnostic result
+        if: github.event_name == 'issues'
+        uses: actions/github-script@v7
+        env:
+          DIAGNOSTIC: ${{ steps.diagnose.outputs.diagnostic }}
+        with:
+          script: |
+            const body = `## Public endpoint diagnostic\n\n\`\`\`text\n${process.env.DIAGNOSTIC}\n\`\`\``;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
