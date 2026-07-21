@@ -30,13 +30,16 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
 
       - name: Check Apple configuration in production
+        id: production
+        shell: bash
         run: |
-          set -euo pipefail
-          sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'bash -se' <<'REMOTE'
+          set +e
+          output="$(sshpass -e ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'bash -se' 2>&1 <<'REMOTE'
           set -Eeuo pipefail
           cd /root/apluspay
           echo "commit=$(git rev-parse --short HEAD)"
-          docker compose ps
+          docker compose ps --format json | head -c 2000
+          echo
           docker compose exec -T web python manage.py shell -c '
           import json
           from django.conf import settings
@@ -59,3 +62,33 @@ jobs:
           tr -d '\r' < "$headers" | awk 'tolower($1) == "location:" {print "location=" substr($0, index($0,$2)); exit}'
           rm -f "$headers"
           REMOTE
+          )"
+          status=$?
+          set -e
+          delimiter="APPLE_DIAGNOSTIC_$(date +%s)"
+          {
+            echo "result<<$delimiter"
+            printf '%s\n' "$output" | tail -n 40
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$output"
+          exit "$status"
+
+      - name: Report diagnostic result
+        if: always() && github.event_name == 'issues'
+        uses: actions/github-script@v7
+        env:
+          DIAGNOSTIC: ${{ steps.production.outputs.result }}
+          CHECK_OUTCOME: ${{ steps.production.outcome }}
+        with:
+          script: |
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const ok = process.env.CHECK_OUTCOME === 'success';
+            const icon = ok ? '✅' : '❌';
+            const diagnostic = process.env.DIAGNOSTIC || 'Keine Diagnoseausgabe verfügbar.';
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `${icon} Apple-Produktionsprüfung\n\n\`\`\`text\n${diagnostic}\n\`\`\`\n\nAblauf: ${runUrl}`,
+            });
