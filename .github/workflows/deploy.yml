@@ -93,6 +93,13 @@ jobs:
           git checkout -B main origin/main
           git reset --hard origin/main
 
+          if [ -f .env ]; then
+            awk '/^[A-Za-z_][A-Za-z0-9_]*=/{print; next} /^[[:space:]]*($|#)/{print}' .env > .env.cleaned
+            mv .env.cleaned .env
+          else
+            touch .env
+          fi
+
           upsert_env() {
             key="$1"
             value="$2"
