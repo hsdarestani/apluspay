@@ -133,10 +133,8 @@ jobs:
             sleep 3
           done
 
-          docker compose exec -T web python - <<'PY'
-          from pay.apple_auth import apple_login_is_configured
-          print("Apple-Anmeldung:", "konfiguriert" if apple_login_is_configured() else "Zugangsdaten fehlen")
-          PY
+          docker compose exec -T web python manage.py shell -c \
+            'from pay.apple_auth import apple_login_is_configured; print("Apple-Anmeldung:", "konfiguriert" if apple_login_is_configured() else "Zugangsdaten fehlen")'
 
           CREDENTIALS_FILE="$APP_DIR/.platform-admin-credentials"
           if [ ! -f "$CREDENTIALS_FILE" ]; then
