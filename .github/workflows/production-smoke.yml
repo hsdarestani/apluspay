@@ -1,4 +1,4 @@
-name: Smoke A+Pay Production Flows
+name: A+Pay-Produktion prüfen
 
 on:
   workflow_run:
@@ -24,7 +24,7 @@ jobs:
       (github.event_name == 'issues' && github.event.issue.title == 'smoke-apluspay-production' && github.actor == github.repository_owner)
     runs-on: ubuntu-latest
     steps:
-      - name: Verify central public flows
+      - name: Öffentliche Kernabläufe prüfen
         id: smoke
         shell: bash
         run: |
@@ -41,7 +41,7 @@ jobs:
               --connect-timeout 10 --max-time 40 \
               "$base$path" -o "$output"
             grep -Fq "$expected" "$output"
-            printf '%-36s HTTP 200 · content OK (%s bytes)\n' "$path" "$(wc -c < "$output")"
+            printf '%-36s HTTP 200 · Inhalt geprüft (%s Byte)\n' "$path" "$(wc -c < "$output")"
           }
 
           protected_check() {
@@ -55,17 +55,20 @@ jobs:
               -D "$headers" -o "$body" -w '%{http_code}' "$base$path")"
             test "$code" = '302'
             grep -Eqi '^location: .*/accounts/login/' "$headers"
-            printf '%-36s HTTP 302 · login protection OK\n' "$path"
+            printf '%-36s HTTP 302 · Anmeldeschutz geprüft\n' "$path"
           }
 
           (
             set -euo pipefail
             public_check '/health/' '"service": "apluspay"'
-            public_check '/' 'A+Pay'
-            public_check '/accounts/register/' 'A+Pay'
+            public_check '/' 'DIE ZENTRALE ZAHLUNGS- UND TREUE-APP'
+            public_check '/accounts/login/' 'Mit Apple fortfahren'
+            public_check '/accounts/login/' '<title>Anmelden · A+Pay</title>'
+            public_check '/accounts/register/' 'Mit Apple fortfahren'
+            public_check '/accounts/register/' 'WILLKOMMEN BEI A+PAY'
             protected_check '/vendors/'
             public_check '/sw.js' 'CACHE'
-            public_check '/static/pay/manifest.webmanifest' 'A+Pay'
+            public_check '/static/pay/manifest.webmanifest' 'Ein Konto für Guthaben'
           ) > /tmp/smoke.log 2>&1
           result=$?
           cat /tmp/smoke.log
@@ -77,7 +80,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           exit "$result"
 
-      - name: Report requested smoke result
+      - name: Angefordertes Prüfergebnis melden
         if: always() && github.event_name == 'issues'
         uses: actions/github-script@v7
         env:
@@ -88,8 +91,8 @@ jobs:
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const details = process.env.RESULT ? `\n\n\`\`\`text\n${process.env.RESULT}\n\`\`\`` : '';
             const body = success
-              ? `✅ Production central-flow smoke checks passed.${details}\n\n${runUrl}`
-              : `❌ Production central-flow smoke checks failed.${details}\n\n${runUrl}`;
+              ? `✅ Die Produktionsprüfung der deutschen Oberfläche und der Apple-Anmeldung war erfolgreich.${details}\n\n${runUrl}`
+              : `❌ Die Produktionsprüfung ist fehlgeschlagen.${details}\n\n${runUrl}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
