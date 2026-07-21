@@ -1,27 +1,27 @@
 {% extends "pay/base.html" %}
-{% block title %}Platform Control · A+Pay{% endblock %}
+{% block title %}Plattformverwaltung · A+Pay{% endblock %}
 {% block content %}
 <section class="dashboard-shell">
   <div class="page-heading">
-    <div><span class="eyebrow">GLOBAL CONTROL</span><h1>A+Pay Platform</h1><p class="muted">Alle Mandanten, Abos und Wallets aus einer Kontrollzentrale.</p></div>
-    <a class="btn btn-primary" href="{% url 'platform-business-create' %}">+ Neues Business</a>
+    <div><span class="eyebrow">ZENTRALE VERWALTUNG</span><h1>A+Pay-Plattform</h1><p class="muted">Alle Mandanten, Abonnements und Guthabenkonten aus einer Kontrollzentrale.</p></div>
+    <a class="btn btn-primary" href="{% url 'platform-business-create' %}">+ Neues Unternehmen</a>
   </div>
   <div class="kpi-grid">
-    <div class="kpi"><span>Businesses</span><strong>{{ stats.businesses }}</strong></div>
+    <div class="kpi"><span>Unternehmen</span><strong>{{ stats.businesses }}</strong></div>
     <div class="kpi"><span>Aktiv</span><strong>{{ stats.active_businesses }}</strong></div>
-    <div class="kpi"><span>Wallets</span><strong>{{ stats.wallets }}</strong></div>
-    <div class="kpi"><span>Ledger-Netto</span><strong>€ {{ stats.volume|floatformat:2 }}</strong></div>
+    <div class="kpi"><span>Guthabenkonten</span><strong>{{ stats.wallets }}</strong></div>
+    <div class="kpi"><span>Netto-Buchungsvolumen</span><strong>€ {{ stats.volume|floatformat:2 }}</strong></div>
   </div>
   <div class="panel">
-    <div class="panel-head"><h2>Mandanten</h2><span class="badge">Multi-Tenant</span></div>
-    <div class="table-wrap"><table><thead><tr><th>Business</th><th>Status</th><th>Tarif</th><th>Wallets</th><th>Team</th><th></th></tr></thead><tbody>
+    <div class="panel-head"><h2>Mandanten</h2><span class="badge">Mehrmandantenfähig</span></div>
+    <div class="table-wrap"><table><thead><tr><th>Unternehmen</th><th>Status</th><th>Tarif</th><th>Guthabenkonten</th><th>Team</th><th></th></tr></thead><tbody>
       {% for business in businesses %}<tr>
         <td><strong>{{ business.name }}</strong><small>{{ business.slug }}</small></td>
         <td><span class="status status-{{ business.status|lower }}">{{ business.get_status_display }}</span></td>
         <td>{{ business.subscription.plan.name|default:"–" }}</td>
         <td>{{ business.wallet_count }}</td><td>{{ business.staff_count }}</td>
         <td><a href="{% url 'owner-dashboard' business.slug %}">Öffnen →</a></td>
-      </tr>{% empty %}<tr><td colspan="6">Noch keine Businesses.</td></tr>{% endfor %}
+      </tr>{% empty %}<tr><td colspan="6">Noch keine Unternehmen.</td></tr>{% endfor %}
     </tbody></table></div>
   </div>
 </section>
