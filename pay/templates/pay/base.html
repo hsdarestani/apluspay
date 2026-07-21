@@ -3,8 +3,9 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0A0D12">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#080A0F">
+  <meta name="description" content="A+Pay – dein zentraler Wallet- und Loyalty-Hub.">
   <title>{% block title %}A+Pay{% endblock %}</title>
   <link rel="manifest" href="{% static 'pay/manifest.webmanifest' %}">
   <link rel="icon" href="{% static 'pay/icon.svg' %}" type="image/svg+xml">
@@ -12,32 +13,38 @@
   {% block head %}{% endblock %}
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="{% url 'landing' %}"><span class="brand-mark">A+</span><span>PAY</span></a>
-    <nav>
+  <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div><div class="noise"></div>
+  <header class="topbar glass">
+    <a class="brand" href="{% url 'landing' %}" aria-label="A+Pay Startseite"><span class="brand-mark">A+</span><span class="brand-word">PAY</span></a>
+    <nav class="desktop-nav">
       {% if user.is_authenticated %}
-        <a href="{% url 'dashboard' %}">Dashboard</a>
+        <a href="{% url 'dashboard' %}">Übersicht</a>
+        {% if not user.is_staff %}<a href="{% url 'vendor-directory' %}">Entdecken</a>{% endif %}
         {% if user.is_staff %}<a href="{% url 'platform-dashboard' %}">Platform</a>{% endif %}
+        <button class="nav-button install-trigger" data-install-app hidden>App installieren</button>
         <form method="post" action="{% url 'logout' %}" class="inline-form">{% csrf_token %}<button class="nav-button">Logout</button></form>
       {% else %}
         <a href="{{ mother_brand_url }}" target="_blank" rel="noopener">A+ Solution</a>
-        <a class="btn btn-small btn-primary" href="{% url 'login' %}">Login</a>
+        <a href="{% url 'login' %}">Login</a>
+        <a class="btn btn-small btn-primary" href="{% url 'register' %}">Kostenlos starten</a>
       {% endif %}
     </nav>
   </header>
 
-  {% if messages %}
-  <div class="flash-wrap">
-    {% for message in messages %}<div class="flash {{ message.tags }}">{{ message }}</div>{% endfor %}
-  </div>
-  {% endif %}
+  {% if messages %}<div class="flash-wrap">{% for message in messages %}<div class="flash {{ message.tags }}"><span>{{ message }}</span><button aria-label="Schließen">×</button></div>{% endfor %}</div>{% endif %}
 
   <main>{% block content %}{% endblock %}</main>
 
-  <footer>
-    <div><strong>A+Pay</strong> · Powered by <a href="{{ mother_brand_url }}">{{ mother_brand }}</a></div>
-    <div>Closed-loop wallet infrastructure for modern hospitality.</div>
-  </footer>
+  {% if user.is_authenticated %}
+  <nav class="mobile-dock glass" aria-label="Mobile Navigation">
+    <a href="{% url 'dashboard' %}"><span>⌂</span><small>Home</small></a>
+    {% if not user.is_staff %}<a href="{% url 'vendor-directory' %}"><span>◇</span><small>Vendor</small></a>{% endif %}
+    <button data-install-app hidden><span>⇩</span><small>Install</small></button>
+    <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button><span>↗</span><small>Logout</small></button></form>
+  </nav>
+  {% endif %}
+
+  <footer><div><strong>A+Pay</strong> · Powered by <a href="{{ mother_brand_url }}">{{ mother_brand }}</a></div><div>One account. Every vendor. Your wallet.</div></footer>
   <script src="{% static 'pay/app.js' %}" defer></script>
   {% block scripts %}{% endblock %}
 </body>
